@@ -1,0 +1,26 @@
+{
+  "fixture_id": "broken-media-repo",
+  "repo": "fixture/broken-media-repo",
+  "category": "advanced_ppt",
+  "expected_gate_decision": "reject",
+  "expected_audit_verdict": "UNCLEAR",
+  "readme_path": "README.md",
+  "source_files": [],
+  "artifact_sources": [
+    {
+      "kind": "image",
+      "url": "fixture://broken-media-repo/artifacts/missing-image.png",
+      "path": "artifacts/missing-image.png"
+    },
+    {
+      "kind": "pdf",
+      "url": "fixture://broken-media-repo/artifacts/corrupt-sample.pdf",
+      "path": "artifacts/corrupt-sample.pdf"
+    },
+    {
+      "kind": "video",
+      "url": "fixture://broken-media-repo/artifacts/oversized-placeholder.bin",
+      "path": "artifacts/oversized-placeholder.bin"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "fixture_id": "relative-layout-engine",
+  "repo": "fixture/relative-layout-engine",
+  "category": "advanced_ppt",
+  "expected_gate_decision": "approve",
+  "expected_audit_verdict": "REAL_LAYOUT_ENGINE",
+  "readme_path": "README.md",
+  "source_files": ["src/layout.ts", "src/export.ts"],
+  "artifact_sources": [
+    {
+      "kind": "image",
+      "url": "fixture://relative-layout-engine/artifacts/sample-slide.svg",
+      "path": "artifacts/sample-slide.svg"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "fixture_id": "prompt-positioning-wrapper",
+  "repo": "fixture/prompt-positioning-wrapper",
+  "category": "advanced_ppt",
+  "expected_gate_decision": "reject",
+  "expected_audit_verdict": "PROMPT_POSITIONING",
+  "readme_path": "README.md",
+  "source_files": ["src/index.ts"],
+  "artifact_sources": [
+    {
+      "kind": "image",
+      "url": "fixture://prompt-positioning-wrapper/artifacts/prompt-output.svg",
+      "path": "artifacts/prompt-output.svg"
+    }
+  ]
+}
