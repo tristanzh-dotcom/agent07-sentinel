@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Grid Composer preview">
+  <rect width="1280" height="720" fill="#000"/>
+  <rect x="100" y="86" width="1080" height="548" rx="18" fill="#080808" stroke="#252525"/>
+  <rect x="148" y="134" width="466" height="202" rx="10" fill="#f5f5f5"/>
+  <rect x="646" y="134" width="184" height="202" rx="10" fill="#151515" stroke="#333"/>
+  <rect x="862" y="134" width="270" height="202" rx="10" fill="#101010" stroke="#333"/>
+  <rect x="148" y="372" width="258" height="92" rx="8" fill="#151515" stroke="#333"/>
+  <rect x="438" y="372" width="258" height="92" rx="8" fill="#f5f5f5"/>
+  <rect x="728" y="372" width="404" height="92" rx="8" fill="#151515" stroke="#333"/>
+  <rect x="148" y="512" width="198" height="14" fill="#777"/>
+  <rect x="148" y="544" width="304" height="12" fill="#444"/>
+  <rect x="862" y="512" width="270" height="44" rx="6" fill="#f5f5f5"/>
+  <text x="148" y="604" fill="#888" font-family="Helvetica, Arial, sans-serif" font-size="20">slide grid composer / modular layout blocks</text>
+</svg>

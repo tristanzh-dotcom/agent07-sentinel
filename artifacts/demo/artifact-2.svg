@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Dynamic Magazine Layout preview">
+  <rect width="1280" height="720" fill="#000"/>
+  <rect x="86" y="64" width="486" height="592" fill="#f7f7f7"/>
+  <rect x="616" y="64" width="578" height="592" fill="#0b0b0b" stroke="#2a2a2a"/>
+  <rect x="128" y="112" width="260" height="24" fill="#111"/>
+  <rect x="128" y="162" width="386" height="9" fill="#4f4f4f"/>
+  <rect x="128" y="184" width="346" height="9" fill="#777"/>
+  <rect x="128" y="226" width="386" height="250" fill="#141414"/>
+  <rect x="128" y="504" width="154" height="10" fill="#555"/>
+  <rect x="128" y="530" width="302" height="8" fill="#999"/>
+  <rect x="128" y="552" width="260" height="8" fill="#999"/>
+  <rect x="674" y="122" width="184" height="420" fill="#ededed"/>
+  <rect x="884" y="122" width="252" height="128" fill="#2c2c2c"/>
+  <rect x="884" y="278" width="252" height="264" fill="#151515" stroke="#333"/>
+  <text x="674" y="604" fill="#888" font-family="Helvetica, Arial, sans-serif" font-size="20">editorial rhythm / high negative space</text>
+</svg>

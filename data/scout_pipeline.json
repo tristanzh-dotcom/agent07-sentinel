@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "run_id": "demo-sentinel-dashboard",
+  "updated_at": "2026-06-15T12:00:00+08:00",
+  "leads": [
+    {
+      "id": "lead-vector-ppt-engine",
+      "repo": "github/designer-ai/vector-ppt-engine",
+      "author": "designer-ai",
+      "title": "Vector PPT Engine",
+      "summary": "相对坐标驱动的 PPT 合成引擎，重点验证是否能稳定生成设计师级页面。",
+      "status": "PENDING",
+      "audit_status": "IDLE",
+      "locked": false,
+      "token_roi_estimate": 0.38,
+      "roi_label": "预计节约 38% 审计 Token",
+      "artifacts": {
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-1.svg"
+      }
+    },
+    {
+      "id": "lead-dynamic-layout",
+      "repo": "github/magazine-labs/dynamic-layout",
+      "author": "magazine-labs",
+      "title": "Dynamic Magazine Layout",
+      "summary": "面向长文混排的动态杂志排版系统，候选价值在空间呼吸感和多图节奏。",
+      "status": "PENDING",
+      "audit_status": "IDLE",
+      "locked": false,
+      "token_roi_estimate": 0.31,
+      "roi_label": "预计节约 31% 试错成本",
+      "artifacts": {
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-2.svg"
+      }
+    },
+    {
+      "id": "lead-relative-canvas",
+      "repo": "github/svg-craft/relative-canvas",
+      "author": "svg-craft",
+      "title": "Relative SVG Canvas",
+      "summary": "SVG 合成与布局坐标抽象候选，适合审计其是否摆脱 prompt 猜位置。",
+      "status": "PENDING",
+      "audit_status": "IDLE",
+      "locked": false,
+      "token_roi_estimate": 0.27,
+      "roi_label": "预计减少 27% 重绘回合",
+      "artifacts": {
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-3.svg"
+      }
+    },
+    {
+      "id": "lead-editorial-pdf",
+      "repo": "github/docgen-ai/editorial-pdf",
+      "author": "docgen-ai",
+      "title": "Editorial PDF Engine",
+      "summary": "面向 PDF 和报告样张的高级网格系统，适合验证中英混排边界。",
+      "status": "PENDING",
+      "audit_status": "IDLE",
+      "locked": false,
+      "token_roi_estimate": 0.25,
+      "roi_label": "预计降低 25% 版式返工",
+      "artifacts": {
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-4.svg"
+      }
+    },
+    {
+      "id": "lead-grid-composer",
+      "repo": "github/slide-intel/grid-composer",
+      "author": "slide-intel",
+      "title": "Grid Composer",
+      "summary": "轻量 slide grid 组合器，候选价值在可热插拔的局部布局生成。",
+      "status": "PENDING",
+      "audit_status": "IDLE",
+      "locked": false,
+      "token_roi_estimate": 0.22,
+      "roi_label": "预计节约 22% 沙盒验证成本",
+      "artifacts": {
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-5.svg"
+      }
+    }
+  ],
+  "blacklist": {
+    "repos": [],
+    "authors": []
+  }
+}

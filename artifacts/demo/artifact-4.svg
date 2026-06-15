@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Editorial PDF Engine preview">
+  <rect width="1280" height="720" fill="#050505"/>
+  <rect x="128" y="70" width="376" height="580" rx="10" fill="#f2f2f2"/>
+  <rect x="776" y="70" width="376" height="580" rx="10" fill="#111" stroke="#292929"/>
+  <rect x="172" y="120" width="176" height="18" fill="#111"/>
+  <rect x="172" y="168" width="286" height="7" fill="#777"/>
+  <rect x="172" y="190" width="260" height="7" fill="#999"/>
+  <rect x="172" y="230" width="286" height="150" fill="#121212"/>
+  <rect x="172" y="420" width="286" height="7" fill="#777"/>
+  <rect x="172" y="444" width="240" height="7" fill="#999"/>
+  <rect x="820" y="120" width="204" height="18" fill="#f2f2f2"/>
+  <rect x="820" y="168" width="286" height="7" fill="#777"/>
+  <rect x="820" y="214" width="286" height="318" fill="#f2f2f2"/>
+  <rect x="854" y="254" width="218" height="9" fill="#111"/>
+  <rect x="854" y="286" width="170" height="9" fill="#555"/>
+  <text x="128" y="690" fill="#777" font-family="Helvetica, Arial, sans-serif" font-size="19">bilingual report pages / print-safe spacing</text>
+</svg>

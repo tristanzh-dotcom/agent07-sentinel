@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Vector PPT Engine preview">
+  <rect width="1280" height="720" fill="#050505"/>
+  <rect x="92" y="76" width="1096" height="568" rx="18" fill="#0d0d0d" stroke="#262626"/>
+  <rect x="140" y="128" width="340" height="38" rx="4" fill="#f5f5f5"/>
+  <rect x="140" y="188" width="520" height="16" rx="3" fill="#6f6f6f"/>
+  <rect x="140" y="218" width="430" height="16" rx="3" fill="#4d4d4d"/>
+  <rect x="736" y="128" width="356" height="356" rx="12" fill="#111" stroke="#333"/>
+  <path d="M780 428 890 252l72 92 56-68 74 152Z" fill="#f2f2f2"/>
+  <circle cx="1020" cy="214" r="34" fill="#8d8d8d"/>
+  <rect x="140" y="526" width="230" height="50" rx="7" fill="#1a1a1a" stroke="#333"/>
+  <rect x="398" y="526" width="230" height="50" rx="7" fill="#f6f6f6"/>
+  <text x="140" y="628" fill="#777" font-family="Helvetica, Arial, sans-serif" font-size="20">relative coordinates / vector-safe slide system</text>
+</svg>
