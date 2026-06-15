@@ -203,4 +203,42 @@ describe("Tier-3 hard-core auditor TDD contract", () => {
     expect(markdown).toContain("Estimated Glue Code Lines: 260");
     expect(markdown).toContain("coordinates drift across regenerated slides");
   });
+
+  it("marks the audit as AUDIT_FAILED and writes a diagnostic placeholder report when the model output is invalid", async () => {
+    const repositoryClient: RepositorySandboxClient = {
+      checkout: vi.fn(async () => ({
+        sourceFiles: [{ path: "index.ts", content: "export const layout = 'unknown';" }]
+      }))
+    };
+    const modelClient: StrongReasoningAuditClient = {
+      audit: vi.fn(async () => "```markdown\nI cannot provide structured JSON today.\n```")
+    };
+
+    const report = await runHardcoreAudit({
+      lead: makeLead(),
+      pipelinePath,
+      sandboxRoot,
+      reportDir,
+      repositoryClient,
+      modelClient
+    });
+
+    const pipeline = JSON.parse(await readFile(pipelinePath, "utf8"));
+    const auditedLead = pipeline.leads.find((lead: { repo: string }) => lead.repo === "github/designer-ai/vector-ppt-engine");
+    const markdown = await readFile(report.markdown_path, "utf8");
+
+    expect(report).toMatchObject({
+      repo: "github/designer-ai/vector-ppt-engine",
+      verdict: "UNCLEAR",
+      confidence: 0,
+      boundary_risks: expect.arrayContaining(["audit execution failed"])
+    });
+    expect(auditedLead.audit_status).toBe("AUDIT_FAILED");
+    expect(auditedLead.audit_report).toMatchObject({
+      verdict: "UNCLEAR",
+      error: expect.stringContaining("Invalid audit model response")
+    });
+    expect(markdown).toContain("AUDIT_FAILED");
+    expect(markdown).toContain("Invalid audit model response");
+  });
 });
