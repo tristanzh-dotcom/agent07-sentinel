@@ -219,7 +219,7 @@ describe("RealSourceAdapter TDD contract", () => {
       status: 403,
       headers: {
         "x-ratelimit-remaining": "12",
-        "retry-after": "2"
+        "x-ratelimit-reset": String(Math.floor((fixedNow.getTime() + 2000) / 1000))
       },
       body: makeSearchResponse([])
     };
