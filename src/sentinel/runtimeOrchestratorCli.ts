@@ -8,6 +8,7 @@ import {
   RuntimeRunResult,
   runRuntimeOrchestrator
 } from "./runtimeOrchestrator.js";
+import { buildDefaultSourcePlanV2 } from "./sourcePlan.js";
 
 type CliParseContext = {
   cwd: string;
@@ -127,26 +128,40 @@ async function writeTextAtomic(path: string, value: string) {
 }
 
 function defaultSourcePlan(config: RuntimeConfig) {
+  const sourcePlanV2 = buildDefaultSourcePlanV2({
+    date: config.date,
+    pushed_after: pushedAfterFor(config.date),
+    min_stars_default: 100,
+    min_stars_fresh_breakout: 20,
+    max_candidates_before_blind_scout: config.limits.max_candidates,
+    topics: ["layout-engine", "vector-graphics", "typesetting"]
+  });
+
   return {
     version: 1 as const,
     date: config.date,
     max_candidates_before_blind_scout: config.limits.max_candidates,
-    github_search_queries: [
-      {
-        id: "sentinel_layout_recent",
-        description: "Recent public layout, presentation, and artifact tooling",
-        q: `pptx layout pushed:>=${config.date}`,
-        sort: "updated" as const,
-        order: "desc" as const,
-        page_start: 1 as const,
-        page_limit: 1,
-        per_page: 20,
-        enabled: true
-      }
-    ],
+    github_search_queries: sourcePlanV2.github_query_matrix.map((entry) => ({
+      id: entry.id,
+      description: `SourcePlan v2 ${entry.intent} query`,
+      q: entry.q,
+      sort: entry.sort,
+      order: entry.order,
+      page_start: 1 as const,
+      page_limit: entry.page_limit,
+      per_page: entry.per_page,
+      enabled: entry.enabled
+    })),
     rss_feeds: [],
     disabled_sources: []
   };
+}
+
+function pushedAfterFor(date: string) {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  parsed.setUTCMonth(parsed.getUTCMonth() - 1, 1);
+  return parsed.toISOString().slice(0, 10);
 }
 
 async function fixtureFallback(projectRoot: string): Promise<RuntimeCandidate[]> {
@@ -271,7 +286,13 @@ export async function runRuntimeOrchestratorCli(input: CliRunInput): Promise<Run
         fetchCandidates: async () => fallback
       },
       liveSource: {
-        fetchCandidates: async () => (await liveSourceAdapter.fetchCandidates()).candidates
+        fetchCandidates: async () => {
+          const result = await liveSourceAdapter.fetchCandidates();
+          return {
+            candidates: result.candidates,
+            shadow_evidence: result.shadow_evidence
+          };
+        }
       },
       mockModel: {
         invoke: async () => ({ provider: "mock" })
@@ -325,4 +346,3 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exitCode = 1;
   });
 }
-

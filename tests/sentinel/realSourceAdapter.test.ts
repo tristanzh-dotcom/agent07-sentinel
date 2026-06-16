@@ -275,7 +275,15 @@ describe("RealSourceAdapter TDD contract", () => {
   });
 
   it("skips blacklisted repositories before README fetch and slices oversized README payloads to 50KB", async () => {
-    const oversizedReadme = `# Huge README\n\n${"layout-token ".repeat(500_000)}`;
+    const oversizedReadme = [
+      "# Huge README",
+      "This repository documents a constraint layout engine with a relative coordinate rendering pipeline.",
+      "Examples and tests live in examples/ and tests/ with a screenshot gallery at docs/preview.png.",
+      "",
+      "![Preview](https://github.com/github/huge-readme-engine/raw/refs/heads/main/docs/preview.png)",
+      "",
+      "layout-token ".repeat(500_000)
+    ].join("\n");
     const searchItems = [
       makeSearchItem("github/blocked-template"),
       makeSearchItem("github/huge-readme-engine"),

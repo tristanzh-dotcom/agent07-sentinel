@@ -3,6 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createRealSourceAdapter,
+  RealSourceAdapterConfig,
+  RealSourceAdapterDeps,
+  RealSourceAdapterResult
+} from "../../src/sentinel/realSourceAdapter.js";
+import {
   RunRuntimeOrchestratorInput,
   RuntimeAdapters,
   RuntimeCandidate,
@@ -112,6 +118,63 @@ function makeAdapters(candidates = [makeCandidate(1), makeCandidate(2), makeCand
       publish: vi.fn(async () => undefined)
     },
     logger: makeLogger()
+  };
+}
+
+function makeRealSourceConfig(): RealSourceAdapterConfig {
+  return {
+    version: 1,
+    runtime: {
+      date: "2026-06-16",
+      run_id: "runtime_20260616T073000Z",
+      gates: {
+        dry_run: true,
+        live_network: true,
+        live_model: false,
+        live_publish: false
+      },
+      paths: {
+        run_shadow_dir: runShadowDir
+      },
+      limits: {
+        max_candidates: 20,
+        max_selected_leads: 5,
+        max_single_payload_tokens: 10_000,
+        max_daily_tokens: 50_000
+      }
+    },
+    source_plan: {
+      version: 1,
+      date: "2026-06-16",
+      max_candidates_before_blind_scout: 20,
+      github_search_queries: [
+        {
+          id: "stage_8_1_zip_noise_fixture",
+          description: "fixture query for low quality ZIP download candidate",
+          q: "pptx layout pushed:>2026-05-01 archived:false template:false is:public",
+          sort: "updated",
+          order: "desc",
+          page_start: 1,
+          page_limit: 1,
+          per_page: 5,
+          enabled: true
+        }
+      ],
+      rss_feeds: [],
+      disabled_sources: []
+    },
+    github: {
+      token_env: "GITHUB_TOKEN",
+      api_version: "2026-03-10",
+      user_agent: "project-sentinel-v3-local-test",
+      request_timeout_ms: 8000,
+      max_concurrency: 2,
+      max_pages_per_query: 1,
+      per_page: 5,
+      max_readme_bytes: 50 * 1024,
+      max_readme_digest_chars: 50 * 1024,
+      max_secondary_limit_retries: 3
+    }
   };
 }
 
@@ -283,5 +346,103 @@ describe("Production Runtime Orchestrator TDD contract", () => {
       "github/runtime/tool-5"
     ]);
     expect(adapters.capturer.captureLead).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("Orchestrator Pipeline E2E Integration with HintGuard", () => {
+  it("keeps ZIP-download noise out of shadow leads and preserves LOW_QUALITY_FILTERED evidence", async () => {
+    const previousProductionJson = await readFile(productionPipelinePath, "utf8");
+    const zipRepo = "github/zip-noise-ppt";
+    const zipReadme = [
+      "# ZIP Noise PPT",
+      "Download the zip file manually to your local directory.",
+      "Visit the releases page to download the package.",
+      "Extract files and double-click the file to run the application.",
+      `![Download](https://github.com/${zipRepo}/raw/refs/heads/main/demo/noise.zip)`
+    ].join("\n");
+    let sourceResult: RealSourceAdapterResult | null = null;
+    const sourceConfig = makeRealSourceConfig();
+    const sourceDeps: RealSourceAdapterDeps = {
+      http: {
+        getJson: vi.fn(async () => ({
+          status: 200,
+          headers: {
+            "x-ratelimit-remaining": "29"
+          },
+          body: {
+            total_count: 1,
+            incomplete_results: false,
+            items: [
+              {
+                full_name: zipRepo,
+                private: false,
+                html_url: `https://github.com/${zipRepo}`,
+                description: "Generate PowerPoint layouts from downloaded zip package",
+                default_branch: "main",
+                pushed_at: "2026-06-16T07:00:00.000Z",
+                created_at: "2026-06-14T07:00:00.000Z",
+                updated_at: "2026-06-16T07:00:00.000Z",
+                stargazers_count: 120,
+                forks_count: 1,
+                topics: ["pptx", "layout"],
+                license: { spdx_id: "MIT" }
+              }
+            ]
+          }
+        })),
+        getText: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: zipReadme
+        }))
+      },
+      fileStore: {
+        writeJsonAtomic: vi.fn(async () => undefined),
+        writeTextAtomic: vi.fn(async () => undefined)
+      },
+      logger: {
+        write: vi.fn(async () => undefined)
+      },
+      fixtureFallback: [],
+      blacklist: {
+        repos: [],
+        authors: []
+      },
+      sleep: vi.fn(async () => undefined),
+      now: () => fixedNow,
+      env: {}
+    };
+    const realSource = createRealSourceAdapter(sourceConfig, sourceDeps);
+    const adapters = makeAdapters([]);
+    adapters.liveSource = {
+      fetchCandidates: vi.fn(async () => {
+        sourceResult = await realSource.fetchCandidates();
+        return sourceResult.candidates;
+      }),
+      fetchShadowEvidence: vi.fn(async () => sourceResult?.shadow_evidence ?? {})
+    };
+    adapters.mockModel.invoke = vi.fn(async () => ({ provider: "mock" }));
+
+    const result = await runRuntimeOrchestrator(
+      makeInput({
+        config: makeConfig({ live_network: true }),
+        adapters
+      })
+    );
+    const shadowPipeline = JSON.parse(await readFile(result.shadow_pipeline_path, "utf8")) as {
+      leads: Array<{ repo: string }>;
+      shadow_evidence?: Record<string, { status: string; evidence: { reason_codes: string[] } }>;
+    };
+
+    expect(await readFile(productionPipelinePath, "utf8")).toBe(previousProductionJson);
+    expect(shadowPipeline.leads).toEqual([]);
+    expect(shadowPipeline.shadow_evidence?.[zipRepo]).toMatchObject({
+      status: "LOW_QUALITY_FILTERED",
+      evidence: {
+        reason_codes: expect.arrayContaining(["ZIP_DOWNLOAD_DOMINATED"])
+      }
+    });
+    expect(adapters.mockModel.invoke).not.toHaveBeenCalled();
+    expect(adapters.capturer.captureLead).not.toHaveBeenCalled();
   });
 });

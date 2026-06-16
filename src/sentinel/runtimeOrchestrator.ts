@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
+import type { ArtifactHintGuardResult } from "./artifactHintGuard.js";
 
 export class RuntimeOrchestratorNotImplementedError extends Error {
   constructor(method: string) {
@@ -69,12 +70,23 @@ export type RuntimePipelineLead = {
   };
 };
 
+export type RuntimeShadowEvidenceEntry = {
+  repo: string;
+  status: "LOW_QUALITY_FILTERED";
+  source: "artifact_hint_guard";
+  captured_at: string;
+  evidence: ArtifactHintGuardResult;
+};
+
+export type RuntimeShadowEvidence = Record<string, RuntimeShadowEvidenceEntry>;
+
 export type RuntimePipelineState = {
   version: 1;
   run_id: string;
   run_label: "[RUNTIME_DRY_RUN]" | "[RUNTIME_LIVE]";
   updated_at: string;
   leads: RuntimePipelineLead[];
+  shadow_evidence?: RuntimeShadowEvidence;
   blacklist: {
     repos: string[];
     authors: string[];
@@ -118,7 +130,8 @@ export type RuntimeCheckpoint = {
 };
 
 export type RuntimeSourceClient = {
-  fetchCandidates: () => Promise<RuntimeCandidate[]>;
+  fetchCandidates: () => Promise<RuntimeCandidate[] | { candidates: RuntimeCandidate[]; shadow_evidence?: RuntimeShadowEvidence }>;
+  fetchShadowEvidence?: () => Promise<RuntimeShadowEvidence> | RuntimeShadowEvidence;
 };
 
 export type RuntimeModelClient = {
@@ -282,8 +295,13 @@ function shouldSkipCandidate(candidate: RuntimeCandidate, skipped: RuntimeCheckp
   return skipped.some((step) => step.repo === candidate.repo);
 }
 
-function pipelineFrom(leads: RuntimePipelineLead[], config: RuntimeConfig, updatedAt: string): RuntimePipelineState {
-  return {
+function pipelineFrom(
+  leads: RuntimePipelineLead[],
+  config: RuntimeConfig,
+  updatedAt: string,
+  shadowEvidence: RuntimeShadowEvidence = {}
+): RuntimePipelineState {
+  const pipeline: RuntimePipelineState = {
     version: 1,
     run_id: config.run_id,
     run_label: config.gates.live_publish ? "[RUNTIME_LIVE]" : "[RUNTIME_DRY_RUN]",
@@ -294,6 +312,10 @@ function pipelineFrom(leads: RuntimePipelineLead[], config: RuntimeConfig, updat
       authors: []
     }
   };
+  if (Object.keys(shadowEvidence).length > 0) {
+    pipeline.shadow_evidence = shadowEvidence;
+  }
+  return pipeline;
 }
 
 async function log(input: RunRuntimeOrchestratorInput, event: string, context: Record<string, unknown> = {}) {
@@ -325,6 +347,20 @@ function routingFor(config: RuntimeConfig): RuntimeRunResult["routing"] {
   };
 }
 
+async function fetchSourcePayload(source: RuntimeSourceClient) {
+  const payload = await source.fetchCandidates();
+  if (Array.isArray(payload)) {
+    return {
+      candidates: payload,
+      shadowEvidence: source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {}
+    };
+  }
+  return {
+    candidates: payload.candidates,
+    shadowEvidence: payload.shadow_evidence ?? (source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {})
+  };
+}
+
 export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput): Promise<RuntimeRunResult> {
   const startedAt = iso(input);
   const config = input.config;
@@ -349,10 +385,12 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
 
   const source = config.gates.live_network ? input.adapters.liveSource : input.adapters.mockSource;
   const model = config.gates.live_model ? input.adapters.liveModel : input.adapters.mockModel;
-  const candidates = (await source.fetchCandidates())
+  const sourcePayload = await fetchSourcePayload(source);
+  const candidates = sourcePayload.candidates
     .slice(0, config.limits.max_candidates)
     .sort((left, right) => right.qualityScore - left.qualityScore)
     .slice(0, config.limits.max_selected_leads);
+  const shadowEvidence = sourcePayload.shadowEvidence;
 
   const ledger = tokenLedger(checkpoint);
   const leads: RuntimePipelineLead[] = candidates.map((candidate) => ({
@@ -366,7 +404,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
       errors: []
     }
   }));
-  const pipeline = pipelineFrom(leads, config, iso(input));
+  const pipeline = pipelineFrom(leads, config, iso(input), shadowEvidence);
   await writeJsonAtomic(shadowPath, pipeline);
 
   if (input.failureInjection === "after_blind_scout") {
@@ -422,7 +460,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
     });
   }
 
-  const capturedPipeline = pipelineFrom(capturedLeads, config, iso(input));
+  const capturedPipeline = pipelineFrom(capturedLeads, config, iso(input), shadowEvidence);
   await writeJsonAtomic(shadowPath, capturedPipeline);
 
   let status: RuntimeRunStatus = config.gates.live_publish && !config.gates.dry_run ? "PUBLISHED" : "DRY_RUN_COMPLETED";

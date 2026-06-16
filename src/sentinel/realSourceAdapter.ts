@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import type { RuntimeCandidate, RuntimeGates } from "./runtimeOrchestrator.js";
+import { scanArtifactHintGuard } from "./artifactHintGuard.js";
+import type { RuntimeCandidate, RuntimeGates, RuntimeShadowEvidence } from "./runtimeOrchestrator.js";
 
 export class RealSourceAdapterNotImplementedError extends Error {
   constructor(method: string) {
@@ -166,6 +167,7 @@ export type RealSourceAdapterResult = {
   status: RealSourceAdapterStatus;
   candidates: RuntimeCandidate[];
   envelopes: SourceCandidateEnvelope[];
+  shadow_evidence: RuntimeShadowEvidence;
   shadow_paths: {
     source_candidates_runtime: string;
     source_candidates_envelope: string;
@@ -372,6 +374,16 @@ function categoryFor(item: GitHubSearchItem, readme: string) {
   return "multimodal_layout";
 }
 
+function shadowEvidenceEntry(repo: string, result: Awaited<ReturnType<typeof scanArtifactHintGuard>>, capturedAt: string) {
+  return {
+    repo,
+    status: "LOW_QUALITY_FILTERED" as const,
+    source: "artifact_hint_guard" as const,
+    captured_at: capturedAt,
+    evidence: result
+  };
+}
+
 function searchUrl(query: GitHubRepositorySearchQuery, page: number, config: RealSourceAdapterConfig) {
   const params = new URLSearchParams({
     q: query.q,
@@ -424,6 +436,7 @@ export async function fetchRealSources(
       status: "COMPLETED",
       candidates: deps.fixtureFallback,
       envelopes: [],
+      shadow_evidence: {},
       shadow_paths: shadowPaths,
       network: {
         live_network_used: false,
@@ -487,6 +500,7 @@ export async function fetchRealSources(
 
   const candidates: RuntimeCandidate[] = [];
   const envelopes: SourceCandidateEnvelope[] = [];
+  const shadowEvidence: RuntimeShadowEvidence = {};
 
   for (const [repo, item] of itemsByRepo) {
     if (candidates.length >= config.source_plan.max_candidates_before_blind_scout) break;
@@ -585,6 +599,7 @@ export async function fetchRealSources(
           status: "SOURCE_THROTTLED",
           candidates,
           envelopes,
+          shadow_evidence: shadowEvidence,
           shadow_paths: shadowPaths,
           network: {
             live_network_used: true,
@@ -605,6 +620,7 @@ export async function fetchRealSources(
     const ownerName = repo.split("/")[0] ?? "";
     const repoName = repo.split("/")[1] ?? repo;
     const score = deterministicScore(item, readmeDigest, artifactUrls.length);
+    const category = categoryFor(item, readmeDigest);
     const envelope: SourceCandidateEnvelope = {
       version: 1,
       source_id: "github_search",
@@ -648,11 +664,46 @@ export async function fetchRealSources(
     };
 
     envelopes.push(envelope);
+    const guardResult = await scanArtifactHintGuard({
+      repo,
+      readme: readmeDigest,
+      artifactUrls,
+      queryIntent: category,
+      maxScanMs: 50,
+      now: deps.now,
+      logger: {
+        write: (event) =>
+          deps.logger.write({
+            level: event.level,
+            component: event.component,
+            event: event.event,
+            meta: event.meta
+          })
+      }
+    });
+
+    if (guardResult.status === "LOW_QUALITY_FILTERED") {
+      shadowEvidence[repo] = shadowEvidenceEntry(repo, guardResult, deps.now().toISOString());
+      await deps.logger.write({
+        level: "INFO",
+        component: "realSourceAdapter.guard",
+        event: "candidate_low_quality_filtered",
+        meta: {
+          run_id: config.runtime.run_id,
+          repo,
+          reason_codes: guardResult.reason_codes,
+          trust_score: guardResult.trust_score,
+          github_token_status: githubTokenStatus(config, deps)
+        }
+      });
+      continue;
+    }
+
     candidates.push({
       id: repo,
       repo,
       title: envelope.content.title,
-      category: categoryFor(item, readmeDigest),
+      category,
       readme: readmeDigest,
       qualityScore: score,
       artifact_urls: artifactUrls
@@ -666,6 +717,7 @@ export async function fetchRealSources(
     status: "COMPLETED",
     candidates,
     envelopes,
+    shadow_evidence: shadowEvidence,
     shadow_paths: shadowPaths,
     network: {
       live_network_used: true,
