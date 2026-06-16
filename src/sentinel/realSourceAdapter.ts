@@ -513,7 +513,10 @@ export async function fetchRealSources(
     while (true) {
       const result = await deps.http.getText({
         url: readmeUrl(repo),
-        headers,
+        headers: {
+          ...headers,
+          Accept: "application/vnd.github.raw+json"
+        },
         timeout_ms: config.github.request_timeout_ms,
         source_id: "github_readme",
         idempotency_key: `readme:${repo}`
