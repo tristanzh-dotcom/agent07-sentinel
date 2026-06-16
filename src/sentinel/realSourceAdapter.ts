@@ -238,6 +238,10 @@ function envelopeCandidatesPath(config: RealSourceAdapterConfig) {
   return join(sourceRoot(config), "source_candidates.envelope.json");
 }
 
+function sourceQueryCheckpointPath(config: RealSourceAdapterConfig) {
+  return join(sourceRoot(config), "source_query_checkpoint.json");
+}
+
 function readmeDigestPath(config: RealSourceAdapterConfig, repo: string) {
   return join(sourceRoot(config), "readmes", `${sanitizePathKey(repo)}.digest.md`);
 }
@@ -396,6 +400,103 @@ function searchUrl(query: GitHubRepositorySearchQuery, page: number, config: Rea
   return `https://api.github.com/search/repositories?${params.toString()}`;
 }
 
+type SourceQueryBatchCheckpoint = {
+  source_id: string;
+  page: number;
+  url: string;
+  status: "QUERY_COMPLETED" | "QUERY_TIMEOUT_SKIPPED";
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  skipped_reason?: "TIMEOUT_SKIPPED";
+};
+
+type SourceQueryCheckpoint = {
+  version: 1;
+  run_id: string;
+  updated_at: string;
+  batches: SourceQueryBatchCheckpoint[];
+};
+
+type JsonBatchResult =
+  | {
+      kind: "response";
+      value: HttpJsonResult<unknown>;
+      duration_ms: number;
+    }
+  | {
+      kind: "timeout";
+      duration_ms: number;
+    };
+
+function isAbortError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: string }).code;
+  return error.name === "AbortError" || code === "ERR_CANCELED";
+}
+
+async function writeSourceQueryCheckpoint(
+  config: RealSourceAdapterConfig,
+  deps: RealSourceAdapterDeps,
+  batches: SourceQueryBatchCheckpoint[]
+) {
+  const checkpoint: SourceQueryCheckpoint = {
+    version: 1,
+    run_id: config.runtime.run_id,
+    updated_at: deps.now().toISOString(),
+    batches
+  };
+  await deps.fileStore.writeJsonAtomic(sourceQueryCheckpointPath(config), checkpoint);
+}
+
+async function requestJsonBatchWithTimeout(
+  config: RealSourceAdapterConfig,
+  deps: RealSourceAdapterDeps,
+  request: HttpRequestSpec
+): Promise<JsonBatchResult> {
+  const controller = new AbortController();
+  const startedAt = deps.now().getTime();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const requestPromise = deps.http.getJson({
+      ...request,
+      signal: controller.signal
+    });
+    const timeoutPromise = new Promise<JsonBatchResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({
+          kind: "timeout",
+          duration_ms: Math.max(config.github.request_timeout_ms, deps.now().getTime() - startedAt)
+        });
+      }, config.github.request_timeout_ms);
+    });
+
+    const result = await Promise.race([
+      requestPromise.then((value): JsonBatchResult => {
+        return {
+          kind: "response",
+          value,
+          duration_ms: deps.now().getTime() - startedAt
+        };
+      }),
+      timeoutPromise
+    ]);
+    return result;
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        kind: "timeout",
+        duration_ms: Math.max(config.github.request_timeout_ms, deps.now().getTime() - startedAt)
+      };
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function readmeUrl(repo: string) {
   return `https://api.github.com/repos/${repo}/readme`;
 }
@@ -459,19 +560,62 @@ export async function fetchRealSources(
   let readmeRequests = 0;
   let retryCount = 0;
   let circuitBreakerOpen = false;
+  const queryCheckpoints: SourceQueryBatchCheckpoint[] = [];
 
   for (const query of config.source_plan.github_search_queries.filter((candidate) => candidate.enabled)) {
     const pageLimit = Math.min(query.page_limit, config.github.max_pages_per_query);
     for (let pageOffset = 0; pageOffset < pageLimit; pageOffset += 1) {
       const page = query.page_start + pageOffset;
-      const result = await deps.http.getJson({
-        url: searchUrl(query, page, config),
+      const url = searchUrl(query, page, config);
+      const startedAt = deps.now().toISOString();
+      const batchResult = await requestJsonBatchWithTimeout(config, deps, {
+        url,
         headers,
         timeout_ms: config.github.request_timeout_ms,
         source_id: query.id,
         idempotency_key: `${query.id}:page:${page}`
       });
       searchRequests += 1;
+
+      if (batchResult.kind === "timeout") {
+        queryCheckpoints.push({
+          source_id: query.id,
+          page,
+          url,
+          status: "QUERY_TIMEOUT_SKIPPED",
+          started_at: startedAt,
+          completed_at: deps.now().toISOString(),
+          duration_ms: batchResult.duration_ms,
+          skipped_reason: "TIMEOUT_SKIPPED"
+        });
+        await deps.logger.write({
+          level: "WARN",
+          component: "realSourceAdapter.github",
+          event: "github_query_timeout_skipped",
+          meta: {
+            run_id: config.runtime.run_id,
+            source_id: query.id,
+            page,
+            url,
+            timeout_ms: config.github.request_timeout_ms,
+            duration_ms: batchResult.duration_ms,
+            github_token_status: githubTokenStatus(config, deps)
+          }
+        });
+        await writeSourceQueryCheckpoint(config, deps, queryCheckpoints);
+        break;
+      }
+
+      const result = batchResult.value;
+      queryCheckpoints.push({
+        source_id: query.id,
+        page,
+        url,
+        status: "QUERY_COMPLETED",
+        started_at: startedAt,
+        completed_at: deps.now().toISOString(),
+        duration_ms: batchResult.duration_ms
+      });
 
       if (isRateLimited(result.status)) {
         retryCount += 1;
