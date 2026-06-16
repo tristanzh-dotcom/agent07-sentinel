@@ -194,6 +194,22 @@ function highTrustReadme(name: string) {
   ].join("\n");
 }
 
+function withReadmeBudget(config: RealSourceAdapterConfig): RealSourceAdapterConfig {
+  const budgeted = config as RealSourceAdapterConfig & {
+    github: RealSourceAdapterConfig["github"] & {
+      max_compliant_sleep_ms: number;
+      readme_phase_wall_clock_budget_ms: number;
+      incremental_flush_every_repos: number;
+      max_readme_rate_limit_retries: number;
+    };
+  };
+  budgeted.github.max_compliant_sleep_ms = 5000;
+  budgeted.github.readme_phase_wall_clock_budget_ms = 45_000;
+  budgeted.github.incremental_flush_every_repos = 1;
+  budgeted.github.max_readme_rate_limit_retries = 1;
+  return budgeted;
+}
+
 describe("RealSourceAdapter TDD contract", () => {
   it("uses local fixture fallback when live_network is false and emits zero HTTP calls", async () => {
     const deps = makeDeps();
@@ -349,6 +365,174 @@ describe("RealSourceAdapter TDD contract", () => {
     );
   });
 });
+
+describe("Stage 9.2 README Budget Guard TDD contract", () => {
+  it("rejects README Primary Rate Limit sleeps above 5000ms while allowing short backoff", async () => {
+    vi.useFakeTimers();
+    const config = withReadmeBudget(makeConfig({ live_network: true }));
+    const repos = [makeSearchItem("github/long-sleep-repo"), makeSearchItem("github/short-sleep-repo")];
+    const deps = makeDeps({
+      http: {
+        getJson: vi.fn(async <T>() => ({
+          status: 200,
+          headers: { "x-ratelimit-remaining": "29" },
+          body: makeSearchResponse(repos)
+        }) as unknown as HttpJsonResult<T>),
+        getText: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 403,
+            headers: {
+              "x-ratelimit-remaining": "0",
+              "x-ratelimit-reset": String(Math.floor((fixedNow.getTime() + 6000) / 1000))
+            },
+            body: ""
+          })
+          .mockResolvedValueOnce({
+            status: 200,
+            headers: {},
+            body: highTrustReadme("Long Sleep Repo")
+          })
+          .mockResolvedValueOnce({
+            status: 429,
+            headers: { "retry-after": "2" },
+            body: ""
+          })
+          .mockResolvedValueOnce({
+            status: 200,
+            headers: {},
+            body: highTrustReadme("Short Sleep Repo")
+          })
+      },
+      sleep: vi.fn(async () => undefined)
+    });
+
+    const result = (await createRealSourceAdapter(config, deps).fetchCandidates()) as RealSourceAdapterResultWithReadmeEvidence;
+
+    const sleepCalls = (deps.sleep as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([ms]) => ms as number);
+    expect(sleepCalls.some((ms) => ms > 5000)).toBe(false);
+    expect(deps.sleep).toHaveBeenCalledWith(2000);
+    expect(result.readme_skip_evidence?.["github/long-sleep-repo"]).toMatchObject({
+      status: "README_RATE_LIMIT_EXCEEDED",
+      source: "readme_budget_guard"
+    });
+    expect(deps.logEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "readme_rate_limit_sleep_rejected",
+          meta: expect.objectContaining({
+            repo: "github/long-sleep-repo",
+            requested_sleep_ms: 6000,
+            max_compliant_sleep_ms: 5000
+          })
+        })
+      ])
+    );
+  });
+
+  it("stops README fetching when the 45s phase budget is exhausted and preserves partial candidates", async () => {
+    let nowMs = fixedNow.getTime();
+    let readmeCalls = 0;
+    const config = withReadmeBudget(makeConfig({ live_network: true }));
+    const repos = [1, 2, 3, 4, 5].map((index) => makeSearchItem(`github/budget-repo-${index}`));
+    const deps = makeDeps({
+      now: () => new Date(nowMs),
+      http: {
+        getJson: vi.fn(async <T>() => ({
+          status: 200,
+          headers: { "x-ratelimit-remaining": "29" },
+          body: makeSearchResponse(repos)
+        }) as unknown as HttpJsonResult<T>),
+        getText: vi.fn(async () => {
+          readmeCalls += 1;
+          nowMs += readmeCalls <= 2 ? 20_000 : 6001;
+          return {
+            status: 200,
+            headers: {},
+            body: highTrustReadme(`Budget Repo ${readmeCalls}`)
+          };
+        })
+      }
+    });
+
+    const result = (await createRealSourceAdapter(config, deps).fetchCandidates()) as RealSourceAdapterResultWithReadmeEvidence;
+
+    expect(deps.http.getText).toHaveBeenCalledTimes(3);
+    expect(result.candidates.map((candidate) => candidate.repo)).toEqual(["github/budget-repo-1", "github/budget-repo-2"]);
+    expect(result.readme_skip_evidence?.GLOBAL_README_PHASE).toMatchObject({
+      status: "GLOBAL_BUDGET_EXHAUSTED",
+      source: "readme_budget_guard"
+    });
+    expect(deps.logEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "readme_phase_budget_exhausted",
+          meta: expect.objectContaining({
+            budget_ms: 45_000
+          })
+        })
+      ])
+    );
+  });
+
+  it("flushes a parseable source_stage_snapshot after each state transition before an injected abort", async () => {
+    const config = withReadmeBudget(makeConfig({ live_network: true }));
+    const repos = [
+      makeSearchItem("github/captured-layout-engine"),
+      makeSearchItem("github/zip-filtered"),
+      makeSearchItem("github/abort-after-snapshot")
+    ];
+    const deps = makeDeps({
+      http: {
+        getJson: vi.fn(async <T>() => ({
+          status: 200,
+          headers: { "x-ratelimit-remaining": "29" },
+          body: makeSearchResponse(repos)
+        }) as unknown as HttpJsonResult<T>),
+        getText: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 200,
+            headers: {},
+            body: highTrustReadme("Captured Layout Engine")
+          })
+          .mockResolvedValueOnce({
+            status: 200,
+            headers: {},
+            body: [
+              "# Zip Filtered",
+              "Download the zip file manually and place it in the root folder.",
+              "![Preview](docs/preview.png)"
+            ].join("\n")
+          })
+          .mockRejectedValueOnce(new Error("SIGINT_AFTER_INCREMENTAL_SNAPSHOT"))
+      }
+    });
+
+    await expect(createRealSourceAdapter(config, deps).fetchCandidates()).rejects.toThrow("SIGINT_AFTER_INCREMENTAL_SNAPSHOT");
+
+    expect(deps.fileStore.writeJsonAtomic).toHaveBeenCalledWith(
+      expect.stringContaining("source_stage_snapshot.json"),
+      expect.objectContaining({
+        status: expect.stringMatching(/^SOURCE_/),
+        promotion_inputs_preview: expect.arrayContaining([expect.objectContaining({ repo: "github/captured-layout-engine" })]),
+        shadow_evidence: expect.objectContaining({
+          "github/zip-filtered": expect.objectContaining({ status: "LOW_QUALITY_FILTERED" })
+        })
+      })
+    );
+  });
+});
+
+type RealSourceAdapterResultWithReadmeEvidence = Awaited<ReturnType<ReturnType<typeof createRealSourceAdapter>["fetchCandidates"]>> & {
+  readme_skip_evidence?: Record<
+    string,
+    {
+      status: "README_RATE_LIMIT_SKIPPED" | "README_RATE_LIMIT_EXCEEDED" | "GLOBAL_BUDGET_EXHAUSTED";
+      source: "readme_budget_guard";
+    }
+  >;
+};
 
 describe("Stage 9 Query Batch Timeout Guard TDD contract", () => {
   it("aborts a hung Search batch at 8000ms using an AbortController signal", async () => {
