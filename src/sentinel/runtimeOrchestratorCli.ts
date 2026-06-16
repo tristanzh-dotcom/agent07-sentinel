@@ -290,7 +290,8 @@ export async function runRuntimeOrchestratorCli(input: CliRunInput): Promise<Run
           const result = await liveSourceAdapter.fetchCandidates();
           return {
             candidates: result.candidates,
-            shadow_evidence: result.shadow_evidence
+            shadow_evidence: result.shadow_evidence,
+            low_relevance_overflow: result.low_relevance_overflow
           };
         }
       },

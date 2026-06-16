@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "nod
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { ArtifactHintGuardResult } from "./artifactHintGuard.js";
+import type { LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
 
 export class RuntimeOrchestratorNotImplementedError extends Error {
   constructor(method: string) {
@@ -87,6 +88,7 @@ export type RuntimePipelineState = {
   updated_at: string;
   leads: RuntimePipelineLead[];
   shadow_evidence?: RuntimeShadowEvidence;
+  low_relevance_overflow?: Record<string, LowRelevanceOverflowEntry>;
   blacklist: {
     repos: string[];
     authors: string[];
@@ -130,7 +132,14 @@ export type RuntimeCheckpoint = {
 };
 
 export type RuntimeSourceClient = {
-  fetchCandidates: () => Promise<RuntimeCandidate[] | { candidates: RuntimeCandidate[]; shadow_evidence?: RuntimeShadowEvidence }>;
+  fetchCandidates: () => Promise<
+    | RuntimeCandidate[]
+    | {
+        candidates: RuntimeCandidate[];
+        shadow_evidence?: RuntimeShadowEvidence;
+        low_relevance_overflow?: Record<string, LowRelevanceOverflowEntry>;
+      }
+  >;
   fetchShadowEvidence?: () => Promise<RuntimeShadowEvidence> | RuntimeShadowEvidence;
 };
 
@@ -299,7 +308,8 @@ function pipelineFrom(
   leads: RuntimePipelineLead[],
   config: RuntimeConfig,
   updatedAt: string,
-  shadowEvidence: RuntimeShadowEvidence = {}
+  shadowEvidence: RuntimeShadowEvidence = {},
+  lowRelevanceOverflow: Record<string, LowRelevanceOverflowEntry> = {}
 ): RuntimePipelineState {
   const pipeline: RuntimePipelineState = {
     version: 1,
@@ -314,6 +324,9 @@ function pipelineFrom(
   };
   if (Object.keys(shadowEvidence).length > 0) {
     pipeline.shadow_evidence = shadowEvidence;
+  }
+  if (Object.keys(lowRelevanceOverflow).length > 0) {
+    pipeline.low_relevance_overflow = lowRelevanceOverflow;
   }
   return pipeline;
 }
@@ -352,12 +365,14 @@ async function fetchSourcePayload(source: RuntimeSourceClient) {
   if (Array.isArray(payload)) {
     return {
       candidates: payload,
-      shadowEvidence: source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {}
+      shadowEvidence: source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {},
+      lowRelevanceOverflow: {}
     };
   }
   return {
     candidates: payload.candidates,
-    shadowEvidence: payload.shadow_evidence ?? (source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {})
+    shadowEvidence: payload.shadow_evidence ?? (source.fetchShadowEvidence ? await source.fetchShadowEvidence() : {}),
+    lowRelevanceOverflow: payload.low_relevance_overflow ?? {}
   };
 }
 
@@ -391,6 +406,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
     .sort((left, right) => right.qualityScore - left.qualityScore)
     .slice(0, config.limits.max_selected_leads);
   const shadowEvidence = sourcePayload.shadowEvidence;
+  const lowRelevanceOverflow = sourcePayload.lowRelevanceOverflow;
 
   const ledger = tokenLedger(checkpoint);
   const leads: RuntimePipelineLead[] = candidates.map((candidate) => ({
@@ -404,7 +420,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
       errors: []
     }
   }));
-  const pipeline = pipelineFrom(leads, config, iso(input), shadowEvidence);
+  const pipeline = pipelineFrom(leads, config, iso(input), shadowEvidence, lowRelevanceOverflow);
   await writeJsonAtomic(shadowPath, pipeline);
 
   if (input.failureInjection === "after_blind_scout") {
@@ -460,7 +476,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
     });
   }
 
-  const capturedPipeline = pipelineFrom(capturedLeads, config, iso(input), shadowEvidence);
+  const capturedPipeline = pipelineFrom(capturedLeads, config, iso(input), shadowEvidence, lowRelevanceOverflow);
   await writeJsonAtomic(shadowPath, capturedPipeline);
 
   let status: RuntimeRunStatus = config.gates.live_publish && !config.gates.dry_run ? "PUBLISHED" : "DRY_RUN_COMPLETED";

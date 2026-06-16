@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { scanArtifactHintGuard } from "./artifactHintGuard.js";
+import { rankLeadPromotionCandidates, type LeadPromotionInput, type LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
 import type { RuntimeCandidate, RuntimeGates, RuntimeShadowEvidence } from "./runtimeOrchestrator.js";
 
 export class RealSourceAdapterNotImplementedError extends Error {
@@ -169,6 +170,7 @@ export type RealSourceAdapterResult = {
   candidates: RuntimeCandidate[];
   envelopes: SourceCandidateEnvelope[];
   shadow_evidence: RuntimeShadowEvidence;
+  low_relevance_overflow: Record<string, LowRelevanceOverflowEntry>;
   shadow_paths: {
     source_candidates_runtime: string;
     source_candidates_envelope: string;
@@ -539,6 +541,7 @@ export async function fetchRealSources(
       candidates: deps.fixtureFallback,
       envelopes: [],
       shadow_evidence: {},
+      low_relevance_overflow: {},
       shadow_paths: shadowPaths,
       network: {
         live_network_used: false,
@@ -646,9 +649,11 @@ export async function fetchRealSources(
   const candidates: RuntimeCandidate[] = [];
   const envelopes: SourceCandidateEnvelope[] = [];
   const shadowEvidence: RuntimeShadowEvidence = {};
+  const promotionInputs: LeadPromotionInput[] = [];
+  const candidateByRepo = new Map<string, RuntimeCandidate>();
 
   for (const [repo, item] of itemsByRepo) {
-    if (candidates.length >= config.source_plan.max_candidates_before_blind_scout) break;
+    if (promotionInputs.length >= config.source_plan.max_candidates_before_blind_scout) break;
 
     const owner = repoOwner(repo);
     if (blacklistRepos.has(repo) || blacklistAuthors.has(owner)) {
@@ -745,6 +750,7 @@ export async function fetchRealSources(
           candidates,
           envelopes,
           shadow_evidence: shadowEvidence,
+          low_relevance_overflow: {},
           shadow_paths: shadowPaths,
           network: {
             live_network_used: true,
@@ -844,7 +850,7 @@ export async function fetchRealSources(
       continue;
     }
 
-    candidates.push({
+    const candidate: RuntimeCandidate = {
       id: repo,
       repo,
       title: envelope.content.title,
@@ -852,8 +858,37 @@ export async function fetchRealSources(
       readme: readmeDigest,
       qualityScore: score,
       artifact_urls: artifactUrls
+    };
+    candidateByRepo.set(repo, candidate);
+    promotionInputs.push({
+      repo,
+      title: candidate.title,
+      category: candidate.category,
+      readme_digest: readmeDigest,
+      description: envelope.content.description,
+      topics: envelope.repo.topics,
+      deterministic_score: score,
+      artifact_url_candidates: artifactUrls
     });
   }
+
+  const ranking = rankLeadPromotionCandidates(promotionInputs, {
+    maxPromoted: config.runtime.limits.max_selected_leads,
+    promotedFloor: 60,
+    now: deps.now
+  });
+  candidates.push(
+    ...ranking.promoted.map((lead) => {
+      const candidate = candidateByRepo.get(lead.repo);
+      if (!candidate) {
+        throw new Error(`MISSING_PROMOTION_CANDIDATE:${lead.repo}`);
+      }
+      return {
+        ...candidate,
+        qualityScore: lead.promotion.relevance_score
+      };
+    })
+  );
 
   await writeOutputs(config, deps, candidates, envelopes);
   return {
@@ -863,6 +898,7 @@ export async function fetchRealSources(
     candidates,
     envelopes,
     shadow_evidence: shadowEvidence,
+    low_relevance_overflow: ranking.low_relevance_overflow,
     shadow_paths: shadowPaths,
     network: {
       live_network_used: true,
