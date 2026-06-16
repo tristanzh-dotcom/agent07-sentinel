@@ -389,11 +389,6 @@ describe("Stage 9.2 README Budget Guard TDD contract", () => {
             body: ""
           })
           .mockResolvedValueOnce({
-            status: 200,
-            headers: {},
-            body: highTrustReadme("Long Sleep Repo")
-          })
-          .mockResolvedValueOnce({
             status: 429,
             headers: { "retry-after": "2" },
             body: ""

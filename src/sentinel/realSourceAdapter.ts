@@ -61,6 +61,10 @@ export type RealSourceAdapterConfig = {
     max_readme_bytes: number;
     max_readme_digest_chars: number;
     max_secondary_limit_retries: number;
+    max_compliant_sleep_ms?: number;
+    readme_phase_wall_clock_budget_ms?: number;
+    incremental_flush_every_repos?: number;
+    max_readme_rate_limit_retries?: number;
   };
 };
 
@@ -171,6 +175,7 @@ export type RealSourceAdapterResult = {
   envelopes: SourceCandidateEnvelope[];
   shadow_evidence: RuntimeShadowEvidence;
   low_relevance_overflow: Record<string, LowRelevanceOverflowEntry>;
+  readme_skip_evidence?: Record<string, ReadmeSkipEvidence>;
   shadow_paths: {
     source_candidates_runtime: string;
     source_candidates_envelope: string;
@@ -184,6 +189,48 @@ export type RealSourceAdapterResult = {
     retry_count: number;
     circuit_breaker_open: boolean;
     reason?: "PRIMARY_RATE_LIMIT" | "SECONDARY_RATE_LIMIT";
+  };
+};
+
+type ReadmeRateLimitKind = "PRIMARY_RATE_LIMIT" | "SECONDARY_RATE_LIMIT" | "UNKNOWN_RATE_LIMIT";
+
+type ReadmeBackoffDecision =
+  | {
+      action: "SLEEP_AND_RETRY";
+      sleep_ms: number;
+      reason: "SHORT_COMPLIANT_BACKOFF";
+      rate_limit_kind: ReadmeRateLimitKind;
+      requested_sleep_ms: number;
+    }
+  | {
+      action: "SKIP_REPO";
+      status: "README_RATE_LIMIT_SKIPPED";
+      reason: "COMPLIANT_SLEEP_EXCEEDED" | "README_RETRY_BUDGET_EXHAUSTED";
+      rate_limit_kind: ReadmeRateLimitKind;
+      requested_sleep_ms: number;
+    }
+  | {
+      action: "STOP_README_PHASE";
+      status: "README_RATE_LIMIT_EXCEEDED";
+      reason: "PRIMARY_RATE_LIMIT_LONG_SLEEP" | "GLOBAL_README_BUDGET_EXHAUSTED";
+      rate_limit_kind: ReadmeRateLimitKind;
+      requested_sleep_ms: number;
+    };
+
+type ReadmeSkipEvidence = {
+  repo: string;
+  status: "README_RATE_LIMIT_SKIPPED" | "README_RATE_LIMIT_EXCEEDED" | "GLOBAL_BUDGET_EXHAUSTED";
+  source: "readme_budget_guard";
+  captured_at: string;
+  evidence: {
+    http_status?: 403 | 429;
+    rate_limit_kind?: ReadmeRateLimitKind;
+    requested_sleep_ms?: number;
+    max_compliant_sleep_ms: number;
+    readme_phase_elapsed_ms: number;
+    retry_count: number;
+    github_token_status: "set" | "unset";
+    decision: ReadmeBackoffDecision["action"] | "GLOBAL_BUDGET_EXHAUSTED";
   };
 };
 
@@ -244,6 +291,10 @@ function sourceQueryCheckpointPath(config: RealSourceAdapterConfig) {
   return join(sourceRoot(config), "source_query_checkpoint.json");
 }
 
+function sourceStageSnapshotPath(config: RealSourceAdapterConfig) {
+  return join(sourceRoot(config), "source_stage_snapshot.json");
+}
+
 function readmeDigestPath(config: RealSourceAdapterConfig, repo: string) {
   return join(sourceRoot(config), "readmes", `${sanitizePathKey(repo)}.digest.md`);
 }
@@ -283,6 +334,12 @@ function isPrimaryRateLimit(headers: HttpHeaders) {
   return headers["x-ratelimit-remaining"] === "0";
 }
 
+function readmeRateLimitKind(status: number, headers: HttpHeaders): ReadmeRateLimitKind {
+  if (isPrimaryRateLimit(headers)) return "PRIMARY_RATE_LIMIT";
+  if (status === 403 || status === 429) return "SECONDARY_RATE_LIMIT";
+  return "UNKNOWN_RATE_LIMIT";
+}
+
 function rateLimitDelayMs(headers: HttpHeaders, now: Date) {
   const retryAfter = headers["retry-after"];
   if (retryAfter) {
@@ -299,6 +356,59 @@ function rateLimitDelayMs(headers: HttpHeaders, now: Date) {
   }
 
   return 1000;
+}
+
+function readmeBudget(config: RealSourceAdapterConfig) {
+  return {
+    maxCompliantSleepMs: config.github.max_compliant_sleep_ms ?? 5000,
+    phaseWallClockBudgetMs: config.github.readme_phase_wall_clock_budget_ms ?? 45_000,
+    incrementalFlushEveryRepos: config.github.incremental_flush_every_repos ?? 1,
+    maxReadmeRateLimitRetries: config.github.max_readme_rate_limit_retries ?? config.github.max_secondary_limit_retries
+  };
+}
+
+function decideReadmeBackoff(input: {
+  status: number;
+  headers: HttpHeaders;
+  now: Date;
+  retryCount: number;
+  maxCompliantSleepMs: number;
+  maxReadmeRateLimitRetries: number;
+}): ReadmeBackoffDecision {
+  const requestedSleepMs = rateLimitDelayMs(input.headers, input.now);
+  const kind = readmeRateLimitKind(input.status, input.headers);
+
+  if (requestedSleepMs <= input.maxCompliantSleepMs && input.retryCount < input.maxReadmeRateLimitRetries) {
+    return {
+      action: "SLEEP_AND_RETRY",
+      sleep_ms: requestedSleepMs,
+      reason: "SHORT_COMPLIANT_BACKOFF",
+      rate_limit_kind: kind,
+      requested_sleep_ms: requestedSleepMs
+    };
+  }
+
+  if (kind === "PRIMARY_RATE_LIMIT") {
+    return {
+      action: "STOP_README_PHASE",
+      status: "README_RATE_LIMIT_EXCEEDED",
+      reason: "PRIMARY_RATE_LIMIT_LONG_SLEEP",
+      rate_limit_kind: kind,
+      requested_sleep_ms: requestedSleepMs
+    };
+  }
+
+  return {
+    action: "SKIP_REPO",
+    status: "README_RATE_LIMIT_SKIPPED",
+    reason: requestedSleepMs > input.maxCompliantSleepMs ? "COMPLIANT_SLEEP_EXCEEDED" : "README_RETRY_BUDGET_EXHAUSTED",
+    rate_limit_kind: kind,
+    requested_sleep_ms: requestedSleepMs
+  };
+}
+
+function readmePhaseElapsedMs(deps: RealSourceAdapterDeps, readmePhaseStartedAtMs: number) {
+  return Math.max(0, deps.now().getTime() - readmePhaseStartedAtMs);
 }
 
 function truncateUtf8(input: string, maxBytes: number, maxChars: number) {
@@ -513,6 +623,43 @@ async function writeOutputs(
   await deps.fileStore.writeJsonAtomic(envelopeCandidatesPath(config), envelopes);
 }
 
+async function flushSourceStageSnapshot(input: {
+  config: RealSourceAdapterConfig;
+  deps: RealSourceAdapterDeps;
+  status: "SOURCE_RUNNING" | "SOURCE_PARTIAL" | "SOURCE_THROTTLED" | "SOURCE_READY_FOR_SCORING";
+  searchRequests: number;
+  readmeRequests: number;
+  promotionInputs: LeadPromotionInput[];
+  candidatesPreview: RuntimeCandidate[];
+  shadowEvidence: RuntimeShadowEvidence;
+  readmeSkipEvidence: Record<string, ReadmeSkipEvidence>;
+  latestEvent: {
+    event: string;
+    repo?: string;
+    reason?: string;
+  };
+}) {
+  await input.deps.fileStore.writeJsonAtomic(sourceStageSnapshotPath(input.config), {
+    version: 1,
+    run_id: input.config.runtime.run_id,
+    updated_at: input.deps.now().toISOString(),
+    status: input.status,
+    counters: {
+      search_requests: input.searchRequests,
+      readme_requests: input.readmeRequests,
+      promotion_inputs: input.promotionInputs.length,
+      shadow_evidence: Object.keys(input.shadowEvidence).length,
+      low_relevance_overflow: 0,
+      skipped_readmes: Object.keys(input.readmeSkipEvidence).length
+    },
+    candidates_preview: input.candidatesPreview,
+    promotion_inputs_preview: input.promotionInputs,
+    shadow_evidence: input.shadowEvidence,
+    readme_skip_evidence: input.readmeSkipEvidence,
+    latest_event: input.latestEvent
+  });
+}
+
 export async function fetchRealSources(
   config: RealSourceAdapterConfig,
   deps: RealSourceAdapterDeps
@@ -542,6 +689,7 @@ export async function fetchRealSources(
       envelopes: [],
       shadow_evidence: {},
       low_relevance_overflow: {},
+      readme_skip_evidence: {},
       shadow_paths: shadowPaths,
       network: {
         live_network_used: false,
@@ -649,10 +797,15 @@ export async function fetchRealSources(
   const candidates: RuntimeCandidate[] = [];
   const envelopes: SourceCandidateEnvelope[] = [];
   const shadowEvidence: RuntimeShadowEvidence = {};
+  const readmeSkipEvidence: Record<string, ReadmeSkipEvidence> = {};
   const promotionInputs: LeadPromotionInput[] = [];
   const candidateByRepo = new Map<string, RuntimeCandidate>();
+  const budget = readmeBudget(config);
+  const readmePhaseStartedAtMs = deps.now().getTime();
+  let sourceStageStopped = false;
 
   for (const [repo, item] of itemsByRepo) {
+    if (sourceStageStopped) break;
     if (promotionInputs.length >= config.source_plan.max_candidates_before_blind_scout) break;
 
     const owner = repoOwner(repo);
@@ -673,8 +826,57 @@ export async function fetchRealSources(
     let readmeDigest = "";
     let readmeTruncated = false;
     let artifactUrls: string[] = [];
+    let skipCurrentRepo = false;
+    let readmeRateLimitRetries = 0;
 
     while (true) {
+      if (readmePhaseElapsedMs(deps, readmePhaseStartedAtMs) >= budget.phaseWallClockBudgetMs) {
+        readmeSkipEvidence.GLOBAL_README_PHASE = {
+          repo: "GLOBAL_README_PHASE",
+          status: "GLOBAL_BUDGET_EXHAUSTED",
+          source: "readme_budget_guard",
+          captured_at: deps.now().toISOString(),
+          evidence: {
+            max_compliant_sleep_ms: budget.maxCompliantSleepMs,
+            readme_phase_elapsed_ms: readmePhaseElapsedMs(deps, readmePhaseStartedAtMs),
+            retry_count: retryCount,
+            github_token_status: githubTokenStatus(config, deps),
+            decision: "GLOBAL_BUDGET_EXHAUSTED"
+          }
+        };
+        await deps.logger.write({
+          level: "WARN",
+          component: "realSourceAdapter.github",
+          event: "readme_phase_budget_exhausted",
+          meta: {
+            run_id: config.runtime.run_id,
+            elapsed_ms: readmePhaseElapsedMs(deps, readmePhaseStartedAtMs),
+            budget_ms: budget.phaseWallClockBudgetMs,
+            promotion_inputs: promotionInputs.length,
+            shadow_evidence: Object.keys(shadowEvidence).length
+          }
+        });
+        await flushSourceStageSnapshot({
+          config,
+          deps,
+          status: "SOURCE_PARTIAL",
+          searchRequests,
+          readmeRequests,
+          promotionInputs,
+          candidatesPreview: Array.from(candidateByRepo.values()),
+          shadowEvidence,
+          readmeSkipEvidence,
+          latestEvent: {
+            event: "readme_phase_budget_exhausted",
+            repo,
+            reason: "GLOBAL_BUDGET_EXHAUSTED"
+          }
+        });
+        sourceStageStopped = true;
+        skipCurrentRepo = true;
+        break;
+      }
+
       const result = await deps.http.getText({
         url: readmeUrl(repo),
         headers: {
@@ -709,6 +911,51 @@ export async function fetchRealSources(
           }
 
           await deps.fileStore.writeTextAtomic(readmeDigestPath(config, repo), readmeDigest);
+        }
+        if (readmePhaseElapsedMs(deps, readmePhaseStartedAtMs) >= budget.phaseWallClockBudgetMs) {
+          readmeSkipEvidence.GLOBAL_README_PHASE = {
+            repo: "GLOBAL_README_PHASE",
+            status: "GLOBAL_BUDGET_EXHAUSTED",
+            source: "readme_budget_guard",
+            captured_at: deps.now().toISOString(),
+            evidence: {
+              max_compliant_sleep_ms: budget.maxCompliantSleepMs,
+              readme_phase_elapsed_ms: readmePhaseElapsedMs(deps, readmePhaseStartedAtMs),
+              retry_count: retryCount,
+              github_token_status: githubTokenStatus(config, deps),
+              decision: "GLOBAL_BUDGET_EXHAUSTED"
+            }
+          };
+          await deps.logger.write({
+            level: "WARN",
+            component: "realSourceAdapter.github",
+            event: "readme_phase_budget_exhausted",
+            meta: {
+              run_id: config.runtime.run_id,
+              elapsed_ms: readmePhaseElapsedMs(deps, readmePhaseStartedAtMs),
+              budget_ms: budget.phaseWallClockBudgetMs,
+              promotion_inputs: promotionInputs.length,
+              shadow_evidence: Object.keys(shadowEvidence).length
+            }
+          });
+          await flushSourceStageSnapshot({
+            config,
+            deps,
+            status: "SOURCE_PARTIAL",
+            searchRequests,
+            readmeRequests,
+            promotionInputs,
+            candidatesPreview: Array.from(candidateByRepo.values()),
+            shadowEvidence,
+            readmeSkipEvidence,
+            latestEvent: {
+              event: "readme_phase_budget_exhausted",
+              repo,
+              reason: "GLOBAL_BUDGET_EXHAUSTED"
+            }
+          });
+          sourceStageStopped = true;
+          skipCurrentRepo = true;
         }
         break;
       }
@@ -751,6 +998,7 @@ export async function fetchRealSources(
           envelopes,
           shadow_evidence: shadowEvidence,
           low_relevance_overflow: {},
+          readme_skip_evidence: readmeSkipEvidence,
           shadow_paths: shadowPaths,
           network: {
             live_network_used: true,
@@ -765,8 +1013,89 @@ export async function fetchRealSources(
         };
       }
 
-      await deps.sleep(rateLimitDelayMs(result.headers, deps.now()));
+      const decision = decideReadmeBackoff({
+        status: result.status,
+        headers: result.headers,
+        now: deps.now(),
+        retryCount: readmeRateLimitRetries,
+        maxCompliantSleepMs: budget.maxCompliantSleepMs,
+        maxReadmeRateLimitRetries: budget.maxReadmeRateLimitRetries
+      });
+
+      if (decision.action === "SLEEP_AND_RETRY") {
+        readmeRateLimitRetries += 1;
+        await deps.logger.write({
+          level: "WARN",
+          component: "realSourceAdapter.github",
+          event: "readme_rate_limit_short_backoff",
+          meta: {
+            run_id: config.runtime.run_id,
+            repo,
+            status: result.status,
+            rate_limit_kind: decision.rate_limit_kind,
+            requested_sleep_ms: decision.requested_sleep_ms,
+            max_compliant_sleep_ms: budget.maxCompliantSleepMs,
+            retry_count: readmeRateLimitRetries,
+            github_token_status: githubTokenStatus(config, deps)
+          }
+        });
+        await deps.sleep(decision.sleep_ms);
+        continue;
+      }
+
+      readmeSkipEvidence[repo] = {
+        repo,
+        status: decision.status,
+        source: "readme_budget_guard",
+        captured_at: deps.now().toISOString(),
+        evidence: {
+          http_status: result.status as 403 | 429,
+          rate_limit_kind: decision.rate_limit_kind,
+          requested_sleep_ms: decision.requested_sleep_ms,
+          max_compliant_sleep_ms: budget.maxCompliantSleepMs,
+          readme_phase_elapsed_ms: readmePhaseElapsedMs(deps, readmePhaseStartedAtMs),
+          retry_count: retryCount,
+          github_token_status: githubTokenStatus(config, deps),
+          decision: decision.action
+        }
+      };
+      await deps.logger.write({
+        level: "WARN",
+        component: "realSourceAdapter.github",
+        event: decision.action === "STOP_README_PHASE" ? "readme_rate_limit_sleep_rejected" : "readme_rate_limit_repo_skipped",
+        meta: {
+          run_id: config.runtime.run_id,
+          repo,
+          status: result.status,
+          rate_limit_kind: decision.rate_limit_kind,
+          requested_sleep_ms: decision.requested_sleep_ms,
+          max_compliant_sleep_ms: budget.maxCompliantSleepMs,
+          decision: decision.action,
+          github_token_status: githubTokenStatus(config, deps)
+        }
+      });
+      await flushSourceStageSnapshot({
+        config,
+        deps,
+        status: "SOURCE_PARTIAL",
+        searchRequests,
+        readmeRequests,
+        promotionInputs,
+        candidatesPreview: Array.from(candidateByRepo.values()),
+        shadowEvidence,
+        readmeSkipEvidence,
+        latestEvent: {
+          event: decision.action === "STOP_README_PHASE" ? "readme_rate_limit_sleep_rejected" : "readme_rate_limit_repo_skipped",
+          repo,
+          reason: decision.reason
+        }
+      });
+
+      skipCurrentRepo = true;
+      break;
     }
+    if (sourceStageStopped) break;
+    if (skipCurrentRepo) continue;
 
     const ownerName = repo.split("/")[0] ?? "";
     const repoName = repo.split("/")[1] ?? repo;
@@ -847,6 +1176,22 @@ export async function fetchRealSources(
           github_token_status: githubTokenStatus(config, deps)
         }
       });
+      await flushSourceStageSnapshot({
+        config,
+        deps,
+        status: "SOURCE_PARTIAL",
+        searchRequests,
+        readmeRequests,
+        promotionInputs,
+        candidatesPreview: Array.from(candidateByRepo.values()),
+        shadowEvidence,
+        readmeSkipEvidence,
+        latestEvent: {
+          event: "candidate_low_quality_filtered",
+          repo,
+          reason: guardResult.reason_codes.join(",")
+        }
+      });
       continue;
     }
 
@@ -869,6 +1214,21 @@ export async function fetchRealSources(
       topics: envelope.repo.topics,
       deterministic_score: score,
       artifact_url_candidates: artifactUrls
+    });
+    await flushSourceStageSnapshot({
+      config,
+      deps,
+      status: "SOURCE_PARTIAL",
+      searchRequests,
+      readmeRequests,
+      promotionInputs,
+      candidatesPreview: Array.from(candidateByRepo.values()),
+      shadowEvidence,
+      readmeSkipEvidence,
+      latestEvent: {
+        event: "candidate_ready_for_promotion",
+        repo
+      }
     });
   }
 
@@ -899,6 +1259,7 @@ export async function fetchRealSources(
     envelopes,
     shadow_evidence: shadowEvidence,
     low_relevance_overflow: ranking.low_relevance_overflow,
+    readme_skip_evidence: readmeSkipEvidence,
     shadow_paths: shadowPaths,
     network: {
       live_network_used: true,

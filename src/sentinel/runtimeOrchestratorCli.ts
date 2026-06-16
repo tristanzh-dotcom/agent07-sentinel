@@ -250,7 +250,11 @@ export async function runRuntimeOrchestratorCli(input: CliRunInput): Promise<Run
         per_page: 20,
         max_readme_bytes: 50 * 1024,
         max_readme_digest_chars: 50 * 1024,
-        max_secondary_limit_retries: 3
+        max_secondary_limit_retries: 3,
+        max_compliant_sleep_ms: 5000,
+        readme_phase_wall_clock_budget_ms: 45_000,
+        incremental_flush_every_repos: 1,
+        max_readme_rate_limit_retries: 1
       }
     },
     {
