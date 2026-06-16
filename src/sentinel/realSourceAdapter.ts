@@ -126,6 +126,7 @@ export type HttpRequestSpec = {
   timeout_ms: number;
   source_id: string;
   idempotency_key: string;
+  signal?: AbortSignal;
 };
 
 export type RateLimitedHttpClient = {

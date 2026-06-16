@@ -181,8 +181,18 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await rm(root, { recursive: true, force: true });
 });
+
+function highTrustReadme(name: string) {
+  return [
+    `# ${name}`,
+    "This project implements a constraint layout engine with a relative coordinate rendering pipeline.",
+    "Examples and tests live in examples/ and tests/.",
+    "![Preview](https://github.com/github/high-trust-layout/raw/refs/heads/main/docs/preview.png)"
+  ].join("\n");
+}
 
 describe("RealSourceAdapter TDD contract", () => {
   it("uses local fixture fallback when live_network is false and emits zero HTTP calls", async () => {
@@ -337,5 +347,127 @@ describe("RealSourceAdapter TDD contract", () => {
         expect.objectContaining({ event: "readme_fetch_truncated" })
       ])
     );
+  });
+});
+
+describe("Stage 9 Query Batch Timeout Guard TDD contract", () => {
+  it("aborts a hung Search batch at 8000ms using an AbortController signal", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const deps = makeDeps({
+      http: {
+        getJson: vi.fn((request) => {
+          capturedSignal = request.signal;
+          return new Promise<HttpJsonResult<GitHubSearchResponse>>(() => undefined);
+        }),
+        getText: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: highTrustReadme("unused")
+        }))
+      }
+    });
+    const adapter = createRealSourceAdapter(makeConfig({ live_network: true }), deps);
+
+    void adapter.fetchCandidates().catch(() => undefined);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(deps.logEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "github_query_timeout_skipped",
+          meta: expect.objectContaining({
+            timeout_ms: 8000,
+            duration_ms: expect.any(Number)
+          })
+        })
+      ])
+    );
+  });
+
+  it("continues to later query batches after one timeout and preserves successful candidates", async () => {
+    vi.useFakeTimers();
+    const config = makeConfig({ live_network: true });
+    config.source_plan.github_search_queries = [
+      { ...config.source_plan.github_search_queries[0], id: "hung_layout_query" },
+      { ...config.source_plan.github_search_queries[0], id: "healthy_typesetting_query", q: "typesetting engine pushed:>2026-05-01" }
+    ];
+    const deps = makeDeps({
+      http: {
+        getJson: vi.fn((request) => {
+          if (request.source_id === "hung_layout_query") {
+            return new Promise<HttpJsonResult<GitHubSearchResponse>>(() => undefined);
+          }
+          return Promise.resolve({
+            status: 200,
+            headers: {
+              "x-ratelimit-remaining": "29"
+            },
+            body: makeSearchResponse([makeSearchItem("github/layout-engine-a"), makeSearchItem("github/layout-engine-b")])
+          });
+        }),
+        getText: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: highTrustReadme("Healthy Layout Engine")
+        }))
+      }
+    });
+    const adapter = createRealSourceAdapter(config, deps);
+
+    const fetchPromise = adapter.fetchCandidates();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(8000);
+    await Promise.resolve();
+
+    expect(deps.http.getJson).toHaveBeenCalledTimes(2);
+    await expect(fetchPromise).resolves.toMatchObject({
+      status: "COMPLETED",
+      candidates: expect.arrayContaining([
+        expect.objectContaining({ repo: "github/layout-engine-a" }),
+        expect.objectContaining({ repo: "github/layout-engine-b" })
+      ])
+    });
+  });
+
+  it("writes timeout-skipped checkpoint evidence without exposing GitHub token values", async () => {
+    vi.useFakeTimers();
+    const token = "ghp_secret_value_for_test";
+    const deps = makeDeps({
+      env: {
+        GITHUB_TOKEN: token
+      },
+      http: {
+        getJson: vi.fn(() => new Promise<HttpJsonResult<GitHubSearchResponse>>(() => undefined)),
+        getText: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: highTrustReadme("unused")
+        }))
+      }
+    });
+    const adapter = createRealSourceAdapter(makeConfig({ live_network: true }), deps);
+
+    void adapter.fetchCandidates().catch(() => undefined);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(deps.fileStore.writeJsonAtomic).toHaveBeenCalledWith(
+      expect.stringContaining(join("sources", "source_query_checkpoint.json")),
+      expect.objectContaining({
+        batches: expect.arrayContaining([
+          expect.objectContaining({
+            status: "QUERY_TIMEOUT_SKIPPED",
+            skipped_reason: "TIMEOUT_SKIPPED"
+          })
+        ])
+      })
+    );
+    const serializedLogs = JSON.stringify(deps.logEvents);
+    expect(serializedLogs).toContain("github_query_timeout_skipped");
+    expect(serializedLogs).toContain('"github_token_status":"set"');
+    expect(serializedLogs).not.toContain(token);
   });
 });
