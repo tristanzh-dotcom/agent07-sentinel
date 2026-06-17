@@ -364,6 +364,51 @@ describe("RealSourceAdapter TDD contract", () => {
       ])
     );
   });
+
+  it("keeps runtime candidate user-visible scores on a 0-100 scale even when internal promotion score exceeds 100", async () => {
+    const config = makeConfig({ live_network: true });
+    config.source_plan.github_search_queries = [
+      {
+        ...config.source_plan.github_search_queries[0],
+        id: "readme_pptxgenjs",
+        q: "pptxgenjs in:readme stars:>100 pushed:>2025-01-01 archived:false template:false mirror:false is:public"
+      }
+    ];
+    const deps = makeDeps({
+      http: {
+        getJson: vi.fn(async <T>() => ({
+          status: 200,
+          headers: { "x-ratelimit-remaining": "29" },
+          body: makeSearchResponse([
+            makeSearchItem(
+              "github/high-score-pptx",
+              "Build PowerPoint presentations with JavaScript and generate professional .docx and .pptx files from JSON definitions"
+            )
+          ])
+        }) as unknown as HttpJsonResult<T>),
+        getText: vi.fn(async () => ({
+          status: 200,
+          headers: {},
+          body: [
+            "# High Score PPTX",
+            "Build PowerPoint presentations with JavaScript.",
+            "Generate professional .docx and .pptx files from JSON definitions.",
+            "Render them into real Office documents with pptx generation, json-to-pptx, html-to-ppt, editable powerpoint, and examples.",
+            "![preview](https://github.com/github/high-score-pptx/raw/main/docs/preview.png)"
+          ].join("\n")
+        }))
+      }
+    });
+
+    const result = await createRealSourceAdapter(config, deps).fetchCandidates();
+    const candidate = result.candidates.find((entry) => entry.repo === "github/high-score-pptx");
+
+    expect(candidate).toBeTruthy();
+    expect(candidate?.qualityScore).toBeLessThanOrEqual(100);
+    expect(candidate?.projectFitScore).toBeLessThanOrEqual(100);
+    expect(candidate?.projectFit?.project_fit_score).toBeLessThanOrEqual(100);
+    expect(candidate?.projectFit?.evidence_quality_score).toBeLessThanOrEqual(100);
+  });
 });
 
 describe("Stage 9.2 README Budget Guard TDD contract", () => {

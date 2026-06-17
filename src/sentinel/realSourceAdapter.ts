@@ -524,6 +524,12 @@ function isDisqualifiedAgent07PptxFit(projectFit: Agent07ProjectFitScore) {
   );
 }
 
+function clampUserVisibleScore(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
 function shadowEvidenceEntry(repo: string, result: Awaited<ReturnType<typeof scanArtifactHintGuard>>, capturedAt: string) {
   return {
     repo,
@@ -1326,9 +1332,12 @@ export async function fetchRealSources(
     .slice(0, config.runtime.limits.max_selected_leads)
     .map((entry) => ({
       ...entry.candidate,
-      qualityScore: entry.promotion.relevance_score,
+      qualityScore: clampUserVisibleScore(strictAgent07PptxRecall ? entry.projectFit.project_fit_score : entry.promotion.relevance_score),
       projectFitScore: entry.projectFit.project_fit_score,
-      projectFit: entry.projectFit
+      projectFit: {
+        ...entry.projectFit,
+        evidence_quality_score: clampUserVisibleScore(entry.projectFit.evidence_quality_score)
+      }
     }));
 
   candidates.push(...projectFitPromoted);
