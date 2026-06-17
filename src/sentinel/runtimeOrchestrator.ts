@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { ArtifactHintGuardResult } from "./artifactHintGuard.js";
 import type { LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
+import type { Agent07ProjectFitScore } from "./projectFitScorer.js";
 
 export class RuntimeOrchestratorNotImplementedError extends Error {
   constructor(method: string) {
@@ -56,6 +57,8 @@ export type RuntimeCandidate = {
   category: string;
   readme: string;
   qualityScore: number;
+  projectFitScore?: number;
+  projectFit?: Agent07ProjectFitScore;
   artifact_urls: string[];
 };
 

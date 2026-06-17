@@ -13,6 +13,9 @@ export type LeadPromoteReasonCode =
   | "REPORT_GENERATION"
   | "VECTOR_CANVAS_RENDERING"
   | "PPT_OR_SLIDE_EXPORT"
+  | "MAINLINE_MARKDOWN_TO_PPTX"
+  | "TEMPLATE_LAYOUT_REUSE"
+  | "AGENT_SKILL_COMPATIBLE"
   | "MULTIMODAL_ARTIFACT_OUTPUT"
   | "VISUAL_ARTIFACT_BONUS"
   | "HIGH_INTENT_TOPIC_BONUS"
@@ -25,7 +28,9 @@ export type LeadDemoteReasonCode =
   | "AWESOME_LIST_OR_INDEX"
   | "TASK_APP_OR_DEMO_APP"
   | "MCP_DIRECTORY_ONLY"
-  | "UI_COMPONENT_ONLY";
+  | "UI_COMPONENT_ONLY"
+  | "SIDE_PATH_PDF_CONVERSION"
+  | "TELEGRAM_OR_SERVICE_WRAPPER";
 
 export type LeadPromotionInput = {
   repo: string;
@@ -115,6 +120,21 @@ const PROMOTION_TERMS: WeightedTerms<LeadPromoteReasonCode>[] = [
     terms: ["powerpoint", "pptx", "slide generation", "presentation generation", "deck export"]
   },
   {
+    code: "MAINLINE_MARKDOWN_TO_PPTX",
+    weight: 50,
+    terms: ["markdown outlines", "markdown outline", "markdown to pptx", "markdown to powerpoint", "outline to pptx"]
+  },
+  {
+    code: "TEMPLATE_LAYOUT_REUSE",
+    weight: 40,
+    terms: ["template's actual layouts", "actual layouts", "slide master", "slide masters", "template layouts"]
+  },
+  {
+    code: "AGENT_SKILL_COMPATIBLE",
+    weight: 20,
+    terms: ["codex", "claude code", "openai", "agent automation", "skill package"]
+  },
+  {
     code: "MULTIMODAL_ARTIFACT_OUTPUT",
     weight: 20,
     terms: ["visual previews", "preview gallery", "generated assets", "screenshot", "showcase"]
@@ -156,6 +176,16 @@ const DEMOTION_TERMS: WeightedTerms<LeadDemoteReasonCode>[] = [
     code: "UI_COMPONENT_ONLY",
     weight: 30,
     terms: ["tag component", "ui widget", "mobile component", "component library", "collectionview"]
+  },
+  {
+    code: "SIDE_PATH_PDF_CONVERSION",
+    weight: 60,
+    terms: ["pdf to ppt", "pdf2ppt", "pdf2pptx", "convert pdf", "pdf files into editable powerpoint", "transform pdf"]
+  },
+  {
+    code: "TELEGRAM_OR_SERVICE_WRAPPER",
+    weight: 20,
+    terms: ["telegram", "bot wrapper", "remote service"]
   }
 ];
 

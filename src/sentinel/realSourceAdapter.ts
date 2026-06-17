@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { scanArtifactHintGuard } from "./artifactHintGuard.js";
 import { rankLeadPromotionCandidates, type LeadPromotionInput, type LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
+import { scoreAgent07ProjectFit, type Agent07ProjectFitScore } from "./projectFitScorer.js";
 import type { RuntimeCandidate, RuntimeGates, RuntimeShadowEvidence } from "./runtimeOrchestrator.js";
 
 export class RealSourceAdapterNotImplementedError extends Error {
@@ -102,6 +103,7 @@ export type SourceCandidateEnvelope = {
     artifact_hint_count: number;
     freshness_score: number;
     source_confidence: "HIGH" | "MEDIUM" | "LOW";
+    project_fit?: Agent07ProjectFitScore;
   };
   safety: {
     blacklisted: boolean;
@@ -1134,7 +1136,16 @@ export async function fetchRealSources(
         matched_keywords: matchedKeywords(item, readmeDigest),
         artifact_hint_count: artifactUrls.length,
         freshness_score: item.pushed_at || item.updated_at ? 20 : 0,
-        source_confidence: "HIGH"
+        source_confidence: "HIGH",
+        project_fit: scoreAgent07ProjectFit({
+          repo,
+          title: titleFromRepo(repo),
+          description: item.description ?? "",
+          readme_digest: readmeDigest,
+          topics: item.topics ?? [],
+          artifact_url_candidates: artifactUrls,
+          evidence_quality_score: score
+        })
       },
       safety: {
         blacklisted: false,
@@ -1243,12 +1254,29 @@ export async function fetchRealSources(
       if (!candidate) {
         throw new Error(`MISSING_PROMOTION_CANDIDATE:${lead.repo}`);
       }
+      const projectFit = scoreAgent07ProjectFit({
+        repo: lead.repo,
+        title: candidate.title,
+        description: lead.description,
+        readme_digest: lead.readme_digest,
+        topics: lead.topics,
+        artifact_url_candidates: lead.artifact_url_candidates,
+        evidence_quality_score: lead.promotion.relevance_score
+      });
       return {
         ...candidate,
-        qualityScore: lead.promotion.relevance_score
+        qualityScore: lead.promotion.relevance_score,
+        projectFitScore: projectFit.project_fit_score,
+        projectFit
       };
     })
   );
+  candidates.sort((left, right) => {
+    const leftFit = Number(left.projectFitScore ?? left.qualityScore ?? 0);
+    const rightFit = Number(right.projectFitScore ?? right.qualityScore ?? 0);
+    if (rightFit !== leftFit) return rightFit - leftFit;
+    return Number(right.qualityScore ?? 0) - Number(left.qualityScore ?? 0);
+  });
 
   await writeOutputs(config, deps, candidates, envelopes);
   return {
