@@ -260,6 +260,48 @@ describe("Production Runtime Orchestrator TDD contract", () => {
     expect(adapters.mockModel.invoke).toHaveBeenCalled();
   });
 
+  it("persists 0-100 Project Fit evidence on shadow pipeline leads instead of captured-only shells", async () => {
+    const candidate = makeCandidate(1, {
+      repo: "github/runtime/pptx-skill",
+      title: "Runtime PPTX Skill",
+      qualityScore: 92,
+      projectFitScore: 86,
+      projectFit: {
+        repo: "github/runtime/pptx-skill",
+        project_fit_score: 86,
+        evidence_quality_score: 92,
+        fit_reason_codes: ["MAINLINE_MARKDOWN_TO_PPTX", "EDITABLE_PPTX_OUTPUT"],
+        fit_risk_codes: ["NO_TEMPLATE_CONTROL"],
+        matched_positive_terms: ["markdown to pptx", "editable pptx"],
+        matched_negative_terms: ["no template"]
+      }
+    });
+
+    const result = await runRuntimeOrchestrator(makeInput({ adapters: makeAdapters([candidate]) }));
+
+    const lead = result.pipeline?.leads[0];
+    expect(lead).toMatchObject({
+      repo: "github/runtime/pptx-skill",
+      status: "CAPTURED",
+      token_roi_estimate: 0.86,
+      roi_label: "Project Fit 86/100",
+      source_kind: "RUNTIME_SHADOW_CANDIDATE",
+      capability: {
+        scoring: {
+          quality_score: 92,
+          project_fit_score: 86
+        },
+        project_fit: {
+          project_fit_score: 86,
+          evidence_quality_score: 92,
+          fit_reason_codes: ["MAINLINE_MARKDOWN_TO_PPTX", "EDITABLE_PPTX_OUTPUT"],
+          fit_risk_codes: ["NO_TEMPLATE_CONTROL"]
+        }
+      }
+    });
+    expect(JSON.stringify(lead)).not.toMatch(/Project Fit 100\/100|quality_score":1\d{2}|quality_score":200/);
+  });
+
   it("keeps production scout_pipeline.json unchanged during shadow failure and publishes only after successful two-phase commit", async () => {
     const previousProductionJson = await readFile(productionPipelinePath, "utf8");
     const failingAdapters = makeAdapters();

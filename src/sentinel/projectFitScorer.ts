@@ -130,7 +130,7 @@ const NEGATIVE_TERMS: WeightedTerms<Agent07ProjectFitRiskCode>[] = [
   {
     code: "STATIC_CONVERTER_ONLY",
     weight: 10,
-    terms: ["converter", "conversion workflow", "format conversion"]
+    terms: ["converter", "conversion workflow", "format conversion", "image-based", "image based", "html decks to pdf", "pdf + pptx", "offline presentations"]
   },
   {
     code: "TELEGRAM_OR_SERVICE_WRAPPER",
@@ -249,7 +249,49 @@ function numberFrom(value: unknown, fallback = 0) {
 }
 
 function evidenceQuality(input: Agent07ProjectFitInput) {
-  return numberFrom(input.evidence_quality_score, numberFrom(input.deterministic_score, numberFrom(input.qualityScore, 0)));
+  return Math.max(0, Math.min(100, numberFrom(input.evidence_quality_score, numberFrom(input.deterministic_score, numberFrom(input.qualityScore, 0)))));
+}
+
+function hasCode<T extends string>(codes: T[], code: T) {
+  return codes.includes(code);
+}
+
+function applyProjectFitCaps(input: {
+  score: number;
+  reasonCodes: Agent07ProjectFitReasonCode[];
+  riskCodes: Agent07ProjectFitRiskCode[];
+  hasPresentationSignal: boolean;
+  hasDirectPresentationCapability: boolean;
+}) {
+  let score = input.score;
+  const reasonCodes = input.reasonCodes;
+  const riskCodes = input.riskCodes;
+  const hasMainline = hasCode(reasonCodes, "MAINLINE_MARKDOWN_TO_PPTX");
+  const hasHtml = hasCode(reasonCodes, "HTML_TO_PPTX_GENERATION");
+  const hasLibrary = hasCode(reasonCodes, "POWERPOINT_GENERATION_LIBRARY");
+  const hasTemplate = hasCode(reasonCodes, "TEMPLATE_LAYOUT_REUSE");
+  const hasSkill = hasCode(reasonCodes, "CODEX_SKILL_COMPATIBLE");
+  const hasEditable = hasCode(reasonCodes, "EDITABLE_PPTX_OUTPUT");
+  const hasCoreGenerationPath = hasMainline || hasHtml || hasLibrary || hasTemplate;
+  const isGenericLibraryOnly = hasLibrary && !hasMainline && !hasHtml && !hasTemplate && !hasEditable;
+
+  if (input.hasPresentationSignal && !input.hasDirectPresentationCapability) score = Math.min(score, 55);
+  if (hasEditable && !hasCoreGenerationPath) score = Math.min(score, 88);
+  if (isGenericLibraryOnly) {
+    score = Math.min(score, hasSkill ? 92 : 88);
+  }
+  if (hasHtml && hasEditable && !hasTemplate && !hasMainline) score = Math.min(score, 90);
+  if (hasLibrary && hasSkill && hasEditable && !hasMainline && !hasTemplate) score = Math.min(score, 97);
+
+  if (riskCodes.includes("STATIC_CONVERTER_ONLY")) score = Math.min(score, 84);
+  if (riskCodes.includes("SIDE_PATH_PDF_CONVERSION")) score = Math.min(score, 76);
+  if (riskCodes.includes("NO_TEMPLATE_CONTROL")) score = Math.min(score, 86);
+  if (riskCodes.includes("VIEWER_ONLY_NO_GENERATION")) score = Math.min(score, 55);
+  if (riskCodes.includes("COLLECTION_OR_AWESOME_LIST")) score = Math.min(score, 55);
+  if (riskCodes.includes("CLASSROOM_OR_AGENT_PLATFORM")) score = Math.min(score, 60);
+  if (riskCodes.includes("NO_PRESENTATION_GENERATION_SIGNAL")) score = Math.min(score, 55);
+
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export function scoreAgent07ProjectFit(input: Agent07ProjectFitInput): Agent07ProjectFitScore {
@@ -262,11 +304,14 @@ export function scoreAgent07ProjectFit(input: Agent07ProjectFitInput): Agent07Pr
   const fitRiskCodes = hasPresentationSignal ? negative.codes : [...negative.codes, "NO_PRESENTATION_GENERATION_SIGNAL" as const];
   const rawScore = Math.max(0, Math.min(100, 55 + qualityComponent + positive.delta - negative.delta));
   const hasDirectPresentationCapability = positive.codes.some((code) => DIRECT_PRESENTATION_CAPABILITY_CODES.includes(code));
-  let score = hasPresentationSignal ? rawScore : Math.min(rawScore, 55);
-
-  if (hasPresentationSignal && !hasDirectPresentationCapability) score = Math.min(score, 55);
-  if (fitRiskCodes.includes("COLLECTION_OR_AWESOME_LIST")) score = Math.min(score, 55);
-  if (fitRiskCodes.includes("CLASSROOM_OR_AGENT_PLATFORM")) score = Math.min(score, 60);
+  const preCapScore = hasPresentationSignal ? rawScore : Math.min(rawScore, 55);
+  const score = applyProjectFitCaps({
+    score: preCapScore,
+    reasonCodes: positive.codes,
+    riskCodes: Array.from(new Set(fitRiskCodes)),
+    hasPresentationSignal,
+    hasDirectPresentationCapability
+  });
 
   return {
     repo: input.repo,

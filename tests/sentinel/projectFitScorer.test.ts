@@ -119,6 +119,17 @@ const semanticaAgentPlatform = {
   evidence_quality_score: 100
 };
 
+const genericAiPresentationSurface = {
+  repo: "example/generic-ai-presentations",
+  title: "Generic AI Presentations",
+  description: "AI presentation generator with OpenAI providers and polished PowerPoint decks.",
+  readme_digest:
+    "Generate presentations using OpenAI, agents, and exportable PowerPoint decks. The README shows outcomes but does not document a concrete input-to-PPTX path or template reuse.",
+  topics: ["openai", "presentations", "powerpoint"],
+  artifact_url_candidates: [],
+  evidence_quality_score: 100
+};
+
 const jsonToOffice = {
   repo: "Wiseair-srl/json-to-office",
   title: "json-to-office",
@@ -128,6 +139,40 @@ const jsonToOffice = {
   topics: ["pptx", "office", "json"],
   artifact_url_candidates: ["https://github.com/Wiseair-srl/json-to-office/raw/main/docs/playground.gif"],
   evidence_quality_score: 90
+};
+
+const slideImageToEditablePptx = {
+  repo: "w1163222589-coder/slide-image-to-editable-pptx",
+  title: "Slide Image To Editable Pptx",
+  description: "A Codex skill for converting slide screenshots into editable PowerPoint decks.",
+  readme_digest:
+    "High-Fidelity Conversion of Slide Screenshots into Editable PowerPoint. Turn slide screenshots into pixel-accurate, fully editable PowerPoint files. Built with PptxGenJS and packaged as a Codex Skill for Claude Code.",
+  topics: ["codex-skill", "editable-pptx", "powerpoint", "pptx", "slides"],
+  artifact_url_candidates: [],
+  evidence_quality_score: 100
+};
+
+const htmlToPptPdf = {
+  repo: "bolynwang/html-to-ppt-pdf",
+  title: "Html To Ppt Pdf",
+  description:
+    "Agents skill — convert guizang-ppt-skill HTML decks to PDF + PPTX for offline presentations. The PPTX is image-based for offline talks.",
+  readme_digest:
+    "zan-html-to-ppt converts horizontal HTML decks to PDF and PPTX for offline presentations. Claude Code skill. Node CLI. Output PPTX is image based.",
+  topics: [],
+  artifact_url_candidates: ["https://github.com/bolynwang/html-to-ppt-pdf/raw/main/docs/preview.png"],
+  evidence_quality_score: 100
+};
+
+const presentationPptMaker = {
+  repo: "elinglijiaoqiao/presentation-ppt-maker",
+  title: "Presentation Ppt Maker",
+  description: "A Claude Code skill that transforms academic papers into a structured slide deck.",
+  readme_digest:
+    "Paper-to-Presentation is a Claude Code skill that transforms a batch of academic papers into a structured slide deck through figure extraction, text curation, narrative architecture, and slide generation. Includes CLI workflow.",
+  topics: [],
+  artifact_url_candidates: [],
+  evidence_quality_score: 100
 };
 
 async function loadProjectFitScorer() {
@@ -220,6 +265,40 @@ describe("Agent07 Project Fit Score contract", () => {
     expect(score.project_fit_score).toBeGreaterThanOrEqual(80);
     expect(score.fit_reason_codes).toEqual(expect.arrayContaining(["POWERPOINT_GENERATION_LIBRARY"]));
     expect(score.fit_risk_codes).not.toContain("COLLECTION_OR_AWESOME_LIST");
+  });
+
+  it("caps generic AI presentation surfaces below full fit when no concrete generation path is documented", async () => {
+    const { scoreAgent07ProjectFit } = await loadProjectFitScorer();
+    const score = scoreAgent07ProjectFit(genericAiPresentationSurface);
+
+    expect(score.project_fit_score).toBeLessThanOrEqual(88);
+    expect(score.fit_reason_codes).toEqual(expect.arrayContaining(["CODEX_SKILL_COMPATIBLE", "EDITABLE_PPTX_OUTPUT"]));
+    expect(score.fit_reason_codes).not.toEqual(
+      expect.arrayContaining(["MAINLINE_MARKDOWN_TO_PPTX", "HTML_TO_PPTX_GENERATION", "POWERPOINT_GENERATION_LIBRARY", "TEMPLATE_LAYOUT_REUSE"])
+    );
+  });
+
+  it("calibrates current Agent07 Top5 candidates with differentiated 0-100 business-fit scores", async () => {
+    const { scoreAgent07ProjectFit } = await loadProjectFitScorer();
+    const scores = [
+      slideImageToEditablePptx,
+      presentationPptMaker,
+      jsonToOffice,
+      domToPptx,
+      htmlToPptPdf
+    ].map((candidate) => ({
+      repo: candidate.repo,
+      score: scoreAgent07ProjectFit(candidate).project_fit_score,
+      risks: scoreAgent07ProjectFit(candidate).fit_risk_codes
+    }));
+
+    expect(new Set(scores.map((entry) => entry.score)).size).toBeGreaterThanOrEqual(4);
+    expect(scores.find((entry) => entry.repo === slideImageToEditablePptx.repo)?.score).toBeGreaterThanOrEqual(92);
+    expect(scores.find((entry) => entry.repo === presentationPptMaker.repo)?.score).toBeGreaterThanOrEqual(88);
+    expect(scores.find((entry) => entry.repo === jsonToOffice.repo)?.score).toBeGreaterThanOrEqual(80);
+    expect(scores.find((entry) => entry.repo === domToPptx.repo)?.score).toBeGreaterThanOrEqual(80);
+    expect(scores.find((entry) => entry.repo === htmlToPptPdf.repo)?.score).toBeLessThanOrEqual(84);
+    expect(scores.find((entry) => entry.repo === htmlToPptPdf.repo)?.risks).toEqual(expect.arrayContaining(["STATIC_CONVERTER_ONLY"]));
   });
 
   it("caps high-evidence document viewers without explicit PowerPoint/PPTX generation signal", async () => {

@@ -66,7 +66,19 @@ export type RuntimePipelineLead = {
   id: string;
   repo: string;
   title: string;
+  summary?: string;
   status: "PENDING" | "CAPTURED" | "PUBLISHED";
+  token_roi_estimate?: number;
+  roi_label?: string;
+  source_kind?: "RUNTIME_SHADOW_CANDIDATE";
+  capability?: {
+    scoring: {
+      quality_score: number;
+      project_fit_score?: number;
+      project_fit?: Agent07ProjectFitScore;
+    };
+    project_fit?: Agent07ProjectFitScore;
+  };
   artifacts: {
     local_thumb_path: string;
     status: "PENDING" | "CAPTURED" | "FALLBACK_USED";
@@ -363,6 +375,29 @@ function routingFor(config: RuntimeConfig): RuntimeRunResult["routing"] {
   };
 }
 
+function pipelineLeadFromCandidate(candidate: RuntimeCandidate, artifacts: RuntimePipelineLead["artifacts"]): RuntimePipelineLead {
+  const projectFitScore = Math.max(0, Math.min(100, Math.round(Number(candidate.projectFitScore ?? candidate.qualityScore ?? 0))));
+  return {
+    id: candidate.id,
+    repo: candidate.repo,
+    title: candidate.title,
+    summary: candidate.readme.slice(0, 260),
+    status: artifacts.status === "PENDING" ? "PENDING" : "CAPTURED",
+    token_roi_estimate: projectFitScore / 100,
+    roi_label: projectFitScore > 0 ? `Project Fit ${projectFitScore}/100` : "Project Fit 待计算",
+    source_kind: "RUNTIME_SHADOW_CANDIDATE",
+    capability: {
+      scoring: {
+        quality_score: Math.max(0, Math.min(100, Math.round(Number(candidate.qualityScore ?? 0)))),
+        project_fit_score: projectFitScore,
+        ...(candidate.projectFit ? { project_fit: candidate.projectFit } : {})
+      },
+      ...(candidate.projectFit ? { project_fit: candidate.projectFit } : {})
+    },
+    artifacts
+  };
+}
+
 async function fetchSourcePayload(source: RuntimeSourceClient) {
   const payload = await source.fetchCandidates();
   if (Array.isArray(payload)) {
@@ -412,17 +447,13 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
   const lowRelevanceOverflow = sourcePayload.lowRelevanceOverflow;
 
   const ledger = tokenLedger(checkpoint);
-  const leads: RuntimePipelineLead[] = candidates.map((candidate) => ({
-    id: candidate.id,
-    repo: candidate.repo,
-    title: candidate.title,
-    status: "PENDING",
-    artifacts: {
+  const leads: RuntimePipelineLead[] = candidates.map((candidate) =>
+    pipelineLeadFromCandidate(candidate, {
       local_thumb_path: "",
       status: "PENDING",
       errors: []
-    }
-  }));
+    })
+  );
   const pipeline = pipelineFrom(leads, config, iso(input), shadowEvidence, lowRelevanceOverflow);
   await writeJsonAtomic(shadowPath, pipeline);
 
@@ -448,17 +479,14 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
 
   const capturedLeads: RuntimePipelineLead[] = [];
   for (const candidate of candidates) {
-    const existing = leads.find((lead) => lead.repo === candidate.repo)!;
     if (shouldSkipCandidate(candidate, resume.skipped_steps)) {
-      capturedLeads.push({
-        ...existing,
-        status: "CAPTURED",
-        artifacts: {
+      capturedLeads.push(
+        pipelineLeadFromCandidate(candidate, {
           local_thumb_path: join(shadowArtifactRoot(config), candidate.repo.replaceAll("/", "_"), "thumb.svg"),
           status: "CAPTURED",
           errors: []
-        }
-      });
+        })
+      );
       continue;
     }
 
@@ -472,11 +500,7 @@ export async function runRuntimeOrchestrator(input: RunRuntimeOrchestratorInput)
     const artifacts = await input.adapters.capturer.captureLead(candidate, {
       shadowArtifactRoot: shadowArtifactRoot(config)
     });
-    capturedLeads.push({
-      ...existing,
-      status: "CAPTURED",
-      artifacts
-    });
+    capturedLeads.push(pipelineLeadFromCandidate(candidate, artifacts));
   }
 
   const capturedPipeline = pipelineFrom(capturedLeads, config, iso(input), shadowEvidence, lowRelevanceOverflow);
