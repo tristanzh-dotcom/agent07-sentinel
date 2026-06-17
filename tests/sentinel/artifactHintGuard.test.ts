@@ -44,7 +44,7 @@ describe("Stage 8 SourcePlan tightening and Artifact Hint Guard TDD contract", (
     expect(plan.version).toBe(2);
     expect(plan.github_query_matrix.length).toBeGreaterThanOrEqual(4);
     for (const entry of plan.github_query_matrix) {
-      expect(entry.q).toContain("pushed:>2026-05-01");
+      expect(entry.q).toContain(entry.id.startsWith("canonical_") ? "pushed:>2025-01-01" : "pushed:>2026-05-01");
       expect(entry.q).toContain("archived:false");
       expect(entry.q).toContain("template:false");
       expect(entry.q).toContain("is:public");
@@ -67,6 +67,80 @@ describe("Stage 8 SourcePlan tightening and Artifact Hint Guard TDD contract", (
     };
 
     expect(() => validateQueryMatrixEntry(broadQuery)).toThrow(/SOURCE_QUERY_TOO_BROAD/);
+  });
+
+  it("adds Agent07 Top5-oriented PPTX skill and template-layout search lanes to the default source plan", () => {
+    const plan = buildDefaultSourcePlanV2({
+      date: "2026-06-17",
+      pushed_after: "2026-05-01",
+      min_stars_default: 100,
+      min_stars_fresh_breakout: 20,
+      max_candidates_before_blind_scout: 50,
+      topics: ["layout-engine", "vector-graphics", "typesetting", "pptx-generation"]
+    });
+
+    const queriesById = Object.fromEntries(plan.github_query_matrix.map((entry) => [entry.id, entry.q]));
+
+    expect(queriesById.readme_markdown_to_pptx).toContain("markdown");
+    expect(queriesById.readme_markdown_to_pptx).toContain("pptx");
+    expect(queriesById.readme_pptx_skill).toContain("skill");
+    expect(queriesById.readme_powerpoint_template_layout).toContain("template");
+    expect(queriesById.readme_powerpoint_template_layout).toContain("layout");
+    expect(queriesById.readme_pptxgenjs).toContain("pptxgenjs");
+    expect(queriesById.readme_python_pptx_markdown).toContain("python-pptx");
+    expect(plan.github_query_matrix.filter((entry) => entry.intent === "pptx_generation").length).toBeGreaterThanOrEqual(4);
+    for (const entry of plan.github_query_matrix) {
+      validateQueryMatrixEntry(entry);
+    }
+  });
+
+  it("prioritizes exact PPTX generation search lanes before broad layout and vector queries", () => {
+    const plan = buildDefaultSourcePlanV2({
+      date: "2026-06-17",
+      pushed_after: "2026-05-01",
+      min_stars_default: 100,
+      min_stars_fresh_breakout: 20,
+      max_candidates_before_blind_scout: 50,
+      topics: ["layout-engine", "vector-graphics", "typesetting", "pptx-generation"]
+    });
+
+    const enabledIds = plan.github_query_matrix.filter((entry) => entry.enabled).map((entry) => entry.id);
+
+    expect(enabledIds.slice(0, 6)).toEqual([
+      "readme_pptxgenjs",
+      "readme_powerpoint_generator",
+      "readme_pptx_automizer",
+      "readme_react_pptx",
+      "readme_markdown_to_pptx",
+      "readme_python_pptx_markdown"
+    ]);
+    expect(enabledIds.indexOf("readme_markdown_to_pptx")).toBeLessThan(enabledIds.indexOf("topic_layout_engine"));
+    expect(enabledIds.indexOf("readme_pptxgenjs")).toBeLessThan(enabledIds.indexOf("topic_vector_graphics"));
+  });
+
+  it("adds canonical mature PPTX library lanes with a wider freshness window so stable libraries are not missed", () => {
+    const plan = buildDefaultSourcePlanV2({
+      date: "2026-06-17",
+      pushed_after: "2026-05-01",
+      min_stars_default: 100,
+      min_stars_fresh_breakout: 20,
+      max_candidates_before_blind_scout: 50,
+      topics: ["pptx-generation"]
+    });
+
+    const queriesById = Object.fromEntries(plan.github_query_matrix.map((entry) => [entry.id, entry.q]));
+
+    expect(queriesById.canonical_pptxgenjs).toContain("pptxgenjs");
+    expect(queriesById.canonical_pptx_automizer).toContain("pptx-automizer");
+    expect(queriesById.canonical_react_pptx).toContain("react-pptx");
+    expect(queriesById.canonical_pptxgenjs).toContain("pushed:>2025-01-01");
+    expect(queriesById.canonical_pptxgenjs).not.toContain("pushed:>2026-05-01");
+    expect(plan.github_query_matrix.findIndex((entry) => entry.id === "canonical_pptxgenjs")).toBeLessThan(
+      plan.github_query_matrix.findIndex((entry) => entry.id === "topic_pptx_generation")
+    );
+    for (const id of ["canonical_pptxgenjs", "canonical_pptx_automizer", "canonical_react_pptx"]) {
+      validateQueryMatrixEntry(plan.github_query_matrix.find((entry) => entry.id === id)!);
+    }
   });
 
   it("filters ZIP-download and prompt-wrapper README patterns into shadow evidence without downstream calls", async () => {
@@ -127,6 +201,116 @@ describe("Stage 8 SourcePlan tightening and Artifact Hint Guard TDD contract", (
     expect(downstream.auditor).not.toHaveBeenCalled();
   });
 
+  it("passes high-intent PPTX generation libraries with examples even when README lacks generic architecture wording", async () => {
+    const logger = makeLogger();
+    const readme = [
+      "# dom-to-pptx",
+      "Converts HTML elements into fully editable PowerPoint and PPTX slides.",
+      "Preserves gradients, shadows, rounded images, and responsive layouts.",
+      "Includes examples/demo pages and sample output decks for testing.",
+      "Usage: import { convert } from 'dom-to-pptx';"
+    ].join("\n");
+
+    const result = await scanArtifactHintGuard({
+      repo: "probe/dom-to-pptx",
+      readme,
+      artifactUrls: [],
+      queryIntent: "pptx_generation",
+      maxScanMs: 50,
+      now: () => fixedNow,
+      logger
+    });
+
+    expect(result).toMatchObject({
+      status: "PASS",
+      roi_multiplier: 1,
+      reason_codes: expect.arrayContaining(["NO_ARCHITECTURE_SIGNAL", "PASS_TESTS_AND_DOCS", "NO_VISUAL_ARTIFACT_SIGNAL"])
+    });
+    expect(result.trust_score).toBeGreaterThanOrEqual(45);
+  });
+
+  it("treats Agent07 advanced_ppt category as high-intent PPTX generation for artifact guard gating", async () => {
+    const logger = makeLogger();
+    const readme = [
+      "# Slide Image to Editable PPTX",
+      "Turn slide screenshots into pixel-accurate, fully editable PowerPoint files.",
+      "Built with PptxGenJS and packaged as a Codex Skill.",
+      "Includes screenshots, examples, sample decks, and validation reports."
+    ].join("\n");
+
+    const result = await scanArtifactHintGuard({
+      repo: "probe/slide-image-to-editable-pptx",
+      readme,
+      artifactUrls: [],
+      queryIntent: "advanced_ppt",
+      maxScanMs: 50,
+      now: () => fixedNow,
+      logger
+    });
+
+    expect(result).toMatchObject({
+      status: "PASS",
+      roi_multiplier: 1,
+      reason_codes: expect.arrayContaining(["NO_ARCHITECTURE_SIGNAL", "PASS_TESTS_AND_DOCS", "PASS_VISUAL_EXAMPLES"])
+    });
+    expect(result.trust_score).toBeGreaterThanOrEqual(45);
+  });
+
+  it("does not misclassify markdown table cells such as pipe-shape as shell-pipe local pollution", async () => {
+    const logger = makeLogger();
+    const readme = [
+      "# json-to-office",
+      "Generate professional .docx and .pptx files from JSON definitions.",
+      "Architecture: a JSON schema and rendering pipeline maps structured slides to real Office files.",
+      "Examples and tests cover the PPTX renderer.",
+      "![Visual Playground](docs/playground.gif)",
+      "| shape | 15 types: rect, ellipse, arrow, star, cloud |"
+    ].join("\n");
+
+    const result = await scanArtifactHintGuard({
+      repo: "probe/json-to-office",
+      readme,
+      artifactUrls: [],
+      queryIntent: "advanced_ppt",
+      maxScanMs: 50,
+      now: () => fixedNow,
+      logger
+    });
+
+    expect(result).toMatchObject({
+      status: "PASS",
+      roi_multiplier: 1
+    });
+    expect(result.reason_codes).not.toContain("LOCAL_INSTALL_POLLUTION");
+  });
+
+  it("passes high-intent PPTX converters with visual artifact evidence even when tests are absent", async () => {
+    const logger = makeLogger();
+    const readme = [
+      "# html-to-ppt-pdf",
+      "Convert HTML decks to PDF and PPTX for offline PowerPoint presentations.",
+      "The output is intended for editable presentation review.",
+      "![preview](https://github.com/probe/html-to-ppt-pdf/raw/main/docs/preview.png)"
+    ].join("\n");
+
+    const result = await scanArtifactHintGuard({
+      repo: "probe/html-to-ppt-pdf",
+      readme,
+      artifactUrls: ["https://github.com/probe/html-to-ppt-pdf/raw/main/docs/preview.png"],
+      queryIntent: "advanced_ppt",
+      maxScanMs: 50,
+      now: () => fixedNow,
+      logger
+    });
+
+    expect(result).toMatchObject({
+      status: "PASS",
+      roi_multiplier: 1,
+      reason_codes: expect.arrayContaining(["NO_TEST_OR_EXAMPLE_SIGNAL", "PASS_VISUAL_EXAMPLES"])
+    });
+    expect(result.trust_score).toBeGreaterThanOrEqual(45);
+  });
+
   it("times out malformed README fingerprint scans and safely marks the repo LOW_QUALITY_FILTERED", async () => {
     const logger = makeLogger();
     const malformedReadme = `${"[]{}()<>!*_".repeat(10_000)}${"A".repeat(20_000)}`;
@@ -171,4 +355,3 @@ describe("Stage 8 SourcePlan tightening and Artifact Hint Guard TDD contract", (
     );
   });
 });
-

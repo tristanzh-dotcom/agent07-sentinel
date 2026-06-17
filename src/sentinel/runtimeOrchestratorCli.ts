@@ -134,7 +134,7 @@ function defaultSourcePlan(config: RuntimeConfig) {
     min_stars_default: 100,
     min_stars_fresh_breakout: 20,
     max_candidates_before_blind_scout: config.limits.max_candidates,
-    topics: ["layout-engine", "vector-graphics", "typesetting"]
+    topics: ["layout-engine", "vector-graphics", "typesetting", "pptx-generation"]
   });
 
   return {

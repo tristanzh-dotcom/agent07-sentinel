@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { scanArtifactHintGuard } from "./artifactHintGuard.js";
-import { rankLeadPromotionCandidates, type LeadPromotionInput, type LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
+import { rankLeadPromotionCandidates, scoreLeadPromotion, type LeadPromotionInput, type LowRelevanceOverflowEntry } from "./leadPromotionScorer.js";
 import { scoreAgent07ProjectFit, type Agent07ProjectFitScore } from "./projectFitScorer.js";
 import type { RuntimeCandidate, RuntimeGates, RuntimeShadowEvidence } from "./runtimeOrchestrator.js";
 
@@ -491,6 +491,37 @@ function categoryFor(item: GitHubSearchItem, readme: string) {
   if (text.includes("svg") || text.includes("diagram")) return "svg_synthesis";
   if (text.includes("pdf") || text.includes("document") || text.includes("typesetting")) return "magazine_composition";
   return "multimodal_layout";
+}
+
+function usesStrictAgent07PptxRecall(config: RealSourceAdapterConfig) {
+  return config.source_plan.github_search_queries.some((query) =>
+    [
+      "readme_pptxgenjs",
+      "readme_powerpoint_generator",
+      "readme_pptx_automizer",
+      "readme_react_pptx",
+      "readme_markdown_to_pptx",
+      "readme_python_pptx_markdown"
+    ].includes(query.id)
+  );
+}
+
+function hasDirectAgent07PptxCapability(projectFit: Agent07ProjectFitScore) {
+  return projectFit.fit_reason_codes.some((code) =>
+    [
+      "MAINLINE_MARKDOWN_TO_PPTX",
+      "HTML_TO_PPTX_GENERATION",
+      "POWERPOINT_GENERATION_LIBRARY",
+      "TEMPLATE_LAYOUT_REUSE",
+      "EDITABLE_PPTX_OUTPUT"
+    ].includes(code)
+  );
+}
+
+function isDisqualifiedAgent07PptxFit(projectFit: Agent07ProjectFitScore) {
+  return projectFit.fit_risk_codes.some((code) =>
+    ["NO_PRESENTATION_GENERATION_SIGNAL", "COLLECTION_OR_AWESOME_LIST", "CLASSROOM_OR_AGENT_PLATFORM", "VIEWER_ONLY_NO_GENERATION"].includes(code)
+  );
 }
 
 function shadowEvidenceEntry(repo: string, result: Awaited<ReturnType<typeof scanArtifactHintGuard>>, capturedAt: string) {
@@ -1243,17 +1274,19 @@ export async function fetchRealSources(
     });
   }
 
+  const strictAgent07PptxRecall = usesStrictAgent07PptxRecall(config);
   const ranking = rankLeadPromotionCandidates(promotionInputs, {
     maxPromoted: config.runtime.limits.max_selected_leads,
     promotedFloor: 60,
     now: deps.now
   });
-  candidates.push(
-    ...ranking.promoted.map((lead) => {
+  const projectFitPromoted = promotionInputs
+    .map((lead, index) => {
       const candidate = candidateByRepo.get(lead.repo);
       if (!candidate) {
         throw new Error(`MISSING_PROMOTION_CANDIDATE:${lead.repo}`);
       }
+      const promotion = scoreLeadPromotion(lead);
       const projectFit = scoreAgent07ProjectFit({
         repo: lead.repo,
         title: candidate.title,
@@ -1261,16 +1294,44 @@ export async function fetchRealSources(
         readme_digest: lead.readme_digest,
         topics: lead.topics,
         artifact_url_candidates: lead.artifact_url_candidates,
-        evidence_quality_score: lead.promotion.relevance_score
+        evidence_quality_score: promotion.relevance_score
       });
       return {
-        ...candidate,
-        qualityScore: lead.promotion.relevance_score,
-        projectFitScore: projectFit.project_fit_score,
+        candidate,
+        index,
+        promotion,
         projectFit
       };
     })
-  );
+    .filter((entry) => {
+      if (!strictAgent07PptxRecall) return entry.promotion.relevance_score >= 60;
+      if (entry.projectFit.project_fit_score < 60 || entry.projectFit.fit_risk_codes.includes("NO_PRESENTATION_GENERATION_SIGNAL")) return false;
+      return hasDirectAgent07PptxCapability(entry.projectFit) && !isDisqualifiedAgent07PptxFit(entry.projectFit);
+    })
+    .sort((left, right) => {
+      if (!strictAgent07PptxRecall) {
+        if (right.promotion.relevance_score !== left.promotion.relevance_score) {
+          return right.promotion.relevance_score - left.promotion.relevance_score;
+        }
+        return left.index - right.index;
+      }
+      if (right.projectFit.project_fit_score !== left.projectFit.project_fit_score) {
+        return right.projectFit.project_fit_score - left.projectFit.project_fit_score;
+      }
+      if (right.promotion.relevance_score !== left.promotion.relevance_score) {
+        return right.promotion.relevance_score - left.promotion.relevance_score;
+      }
+      return left.index - right.index;
+    })
+    .slice(0, config.runtime.limits.max_selected_leads)
+    .map((entry) => ({
+      ...entry.candidate,
+      qualityScore: entry.promotion.relevance_score,
+      projectFitScore: entry.projectFit.project_fit_score,
+      projectFit: entry.projectFit
+    }));
+
+  candidates.push(...projectFitPromoted);
   candidates.sort((left, right) => {
     const leftFit = Number(left.projectFitScore ?? left.qualityScore ?? 0);
     const rightFit = Number(right.projectFitScore ?? right.qualityScore ?? 0);

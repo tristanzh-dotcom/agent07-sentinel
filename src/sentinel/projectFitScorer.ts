@@ -1,5 +1,7 @@
 export type Agent07ProjectFitReasonCode =
   | "MAINLINE_MARKDOWN_TO_PPTX"
+  | "HTML_TO_PPTX_GENERATION"
+  | "POWERPOINT_GENERATION_LIBRARY"
   | "TEMPLATE_LAYOUT_REUSE"
   | "CODEX_SKILL_COMPATIBLE"
   | "EDITABLE_PPTX_OUTPUT"
@@ -10,7 +12,15 @@ export type Agent07ProjectFitRiskCode =
   | "STATIC_CONVERTER_ONLY"
   | "TELEGRAM_OR_SERVICE_WRAPPER"
   | "NO_TEMPLATE_CONTROL"
-  | "WEAK_MAINTENANCE_SIGNAL";
+  | "WEAK_MAINTENANCE_SIGNAL"
+  | "MOBILE_UI_LAYOUT_ONLY"
+  | "VECTOR_GRAPHICS_EDITOR_ONLY"
+  | "TERMINAL_OR_DESKTOP_UI_ONLY"
+  | "MINECRAFT_MOD_ONLY"
+  | "NO_PRESENTATION_GENERATION_SIGNAL"
+  | "VIEWER_ONLY_NO_GENERATION"
+  | "COLLECTION_OR_AWESOME_LIST"
+  | "CLASSROOM_OR_AGENT_PLATFORM";
 
 export type Agent07ProjectFitInput = {
   repo: string;
@@ -61,14 +71,43 @@ const POSITIVE_TERMS: WeightedTerms<Agent07ProjectFitReasonCode>[] = [
     terms: ["markdown outlines", "markdown outline", "markdown to pptx", "markdown to powerpoint", "outline to pptx"]
   },
   {
+    code: "HTML_TO_PPTX_GENERATION",
+    weight: 20,
+    terms: ["dom-to-pptx", "html to pptx", "html element into a fully editable powerpoint", "html element into a fully editable powerpoint slide"]
+  },
+  {
+    code: "POWERPOINT_GENERATION_LIBRARY",
+    weight: 35,
+    terms: [
+      "build powerpoint presentations",
+      "create powerpoint presentations",
+      "generate powerpoint",
+      "powerpoint generator",
+      "pptx generator",
+      "pptx generation",
+      "pptx-automizer",
+      "react-pptx",
+      "json-to-pptx",
+      "generate professional .docx and .pptx files",
+      "pptx files from json",
+      "render them into real office documents",
+      "html-to-ppt",
+      "ppt maker",
+      "presentation-ppt-maker",
+      "slide image to editable pptx",
+      "markdown to powerpoint",
+      "markdown to pptx"
+    ]
+  },
+  {
     code: "TEMPLATE_LAYOUT_REUSE",
     weight: 28,
-    terms: ["template's actual layouts", "actual layouts", "slide master", "slide masters", "template layouts", "layouts"]
+    terms: ["template's actual layouts", "actual layouts", "slide master", "slide masters", "template layouts", "powerpoint template"]
   },
   {
     code: "CODEX_SKILL_COMPATIBLE",
     weight: 24,
-    terms: ["codex", "claude code", "openai", "agent automation", "skill"]
+    terms: ["codex", "claude code", "openai", "agent automation", "skill package"]
   },
   {
     code: "EDITABLE_PPTX_OUTPUT",
@@ -77,8 +116,8 @@ const POSITIVE_TERMS: WeightedTerms<Agent07ProjectFitReasonCode>[] = [
   },
   {
     code: "LOCAL_AUTOMATION_SURFACE",
-    weight: 8,
-    terms: ["cli", "python", "node", "local", "script"]
+    weight: 4,
+    terms: ["command-line", "cli", "python api", "node api", "local api"]
   }
 ];
 
@@ -107,7 +146,51 @@ const NEGATIVE_TERMS: WeightedTerms<Agent07ProjectFitRiskCode>[] = [
     code: "WEAK_MAINTENANCE_SIGNAL",
     weight: 8,
     terms: ["toy", "demo only", "not maintained"]
+  },
+  {
+    code: "COLLECTION_OR_AWESOME_LIST",
+    weight: 40,
+    terms: ["awesome-", "awesome ", "curated list", "curated ai coding agent skills", "bundles reusable skills", "reusable skills", "playbooks"]
+  },
+  {
+    code: "CLASSROOM_OR_AGENT_PLATFORM",
+    weight: 35,
+    terms: ["classroom", "multi-agent learning", "multi-agent classroom", "ai teachers", "quizzes", "simulations", "context graph", "governance"]
+  },
+  {
+    code: "MOBILE_UI_LAYOUT_ONLY",
+    weight: 25,
+    terms: ["ios", "uikit", "swiftui", "react native", "android", "mobile ui"]
+  },
+  {
+    code: "VECTOR_GRAPHICS_EDITOR_ONLY",
+    weight: 25,
+    terms: ["vector paint", "vector graphics editor", "paint program", "2d content creation", "pixel art"]
+  },
+  {
+    code: "TERMINAL_OR_DESKTOP_UI_ONLY",
+    weight: 20,
+    terms: ["terminal apps", "window manager", "desktop gui framework"]
+  },
+  {
+    code: "MINECRAFT_MOD_ONLY",
+    weight: 25,
+    terms: ["minecraft mod", "minecraft"]
+  },
+  {
+    code: "VIEWER_ONLY_NO_GENERATION",
+    weight: 35,
+    terms: ["viewer", "renders to an html canvas", "renders to a canvas", "view documents", "document viewer"]
   }
+];
+
+const PRESENTATION_GENERATION_TERMS = ["pptx", "powerpoint", "slides", "slide", "presentation", "presentations", "deck", "decks"];
+const DIRECT_PRESENTATION_CAPABILITY_CODES: Agent07ProjectFitReasonCode[] = [
+  "MAINLINE_MARKDOWN_TO_PPTX",
+  "HTML_TO_PPTX_GENERATION",
+  "POWERPOINT_GENERATION_LIBRARY",
+  "TEMPLATE_LAYOUT_REUSE",
+  "EDITABLE_PPTX_OUTPUT"
 ];
 
 function normalizeText(input: Agent07ProjectFitInput) {
@@ -126,13 +209,27 @@ function normalizeText(input: Agent07ProjectFitInput) {
     .toLowerCase();
 }
 
+function tokenize(haystack: string) {
+  return new Set(haystack.split(/[^a-z0-9+#.-]+/).filter(Boolean));
+}
+
+function isShortTokenTerm(term: string) {
+  return /^[a-z0-9+#.-]+$/.test(term) && term.length <= 4;
+}
+
+function termMatches(haystack: string, tokens: Set<string>, term: string) {
+  if (isShortTokenTerm(term)) return tokens.has(term);
+  return haystack.includes(term);
+}
+
 function applyTerms<T extends string>(haystack: string, groups: WeightedTerms<T>[]) {
+  const tokens = tokenize(haystack);
   const codes: T[] = [];
   const terms: string[] = [];
   let delta = 0;
 
   for (const group of groups) {
-    const matched = group.terms.filter((term) => haystack.includes(term));
+    const matched = group.terms.filter((term) => termMatches(haystack, tokens, term));
     if (matched.length === 0) continue;
     codes.push(group.code);
     terms.push(...matched);
@@ -161,14 +258,22 @@ export function scoreAgent07ProjectFit(input: Agent07ProjectFitInput): Agent07Pr
   const negative = applyTerms(haystack, NEGATIVE_TERMS);
   const quality = evidenceQuality(input);
   const qualityComponent = Math.max(0, Math.min(20, Math.round(quality / 10)));
-  const score = Math.max(0, Math.min(100, 55 + qualityComponent + positive.delta - negative.delta));
+  const hasPresentationSignal = PRESENTATION_GENERATION_TERMS.some((term) => haystack.includes(term));
+  const fitRiskCodes = hasPresentationSignal ? negative.codes : [...negative.codes, "NO_PRESENTATION_GENERATION_SIGNAL" as const];
+  const rawScore = Math.max(0, Math.min(100, 55 + qualityComponent + positive.delta - negative.delta));
+  const hasDirectPresentationCapability = positive.codes.some((code) => DIRECT_PRESENTATION_CAPABILITY_CODES.includes(code));
+  let score = hasPresentationSignal ? rawScore : Math.min(rawScore, 55);
+
+  if (hasPresentationSignal && !hasDirectPresentationCapability) score = Math.min(score, 55);
+  if (fitRiskCodes.includes("COLLECTION_OR_AWESOME_LIST")) score = Math.min(score, 55);
+  if (fitRiskCodes.includes("CLASSROOM_OR_AGENT_PLATFORM")) score = Math.min(score, 60);
 
   return {
     repo: input.repo,
     project_fit_score: score,
     evidence_quality_score: quality,
     fit_reason_codes: positive.codes,
-    fit_risk_codes: negative.codes,
+    fit_risk_codes: Array.from(new Set(fitRiskCodes)),
     matched_positive_terms: positive.terms,
     matched_negative_terms: negative.terms
   };

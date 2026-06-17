@@ -121,9 +121,34 @@ const testOrExamplePhrases = [
 ];
 
 const visualArtifactPhrases = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".pdf", "screenshot", "gallery", "artifact"];
+const pptxGenerationPhrases = [
+  "pptx",
+  "powerpoint",
+  "editable powerpoint",
+  "editable pptx",
+  "slide deck",
+  "slides",
+  "presentation"
+];
 
 function hasAny(text: string, needles: string[]): boolean {
   return needles.some((needle) => text.includes(needle));
+}
+
+function hasLocalPollutionSignal(text: string): boolean {
+  const lines = text.split(/\r?\n/);
+  return lines.some((line) => {
+    const normalized = line.trim();
+    return (
+      normalized.includes("sudo curl") ||
+      normalized.includes("chmod 777") ||
+      normalized.includes("copy to c:\\") ||
+      normalized.includes("extract to c:\\") ||
+      normalized.includes("run as administrator") ||
+      normalized.includes("disable antivirus") ||
+      (normalized.includes("curl ") && normalized.includes("| sh"))
+    );
+  });
 }
 
 function isArchiveArtifact(url: string): boolean {
@@ -171,11 +196,14 @@ function scanArtifactHintsLinearly(input: { readme: string; artifactUrls: string
   const archiveAsPrimaryArtifact = artifactUrls.length > 0 && isArchiveArtifact(artifactUrls[0]);
 
   const hasZipDownloadLanguage = hasAny(text, zipDownloadPhrases);
-  const hasLocalPollution = hasAny(text, localPollutionPhrases) && (text.includes("sudo curl") || text.includes("| sh") || text.includes("c:\\") || text.includes("root folder") || text.includes("administrator") || text.includes("antivirus"));
+  const hasLocalPollution = hasLocalPollutionSignal(text);
   const hasPromptWrapper = hasAny(text, promptWrapperPhrases);
   const hasArchitectureSignal = hasAny(text, architecturePhrases);
   const hasTestOrExampleSignal = hasAny(text, testOrExamplePhrases);
   const hasVisualArtifactSignal = hasAny(text, visualArtifactPhrases) || artifactUrls.some((url) => hasAny(url, visualArtifactPhrases));
+  const isPptxGenerationIntent = input.queryIntent === "pptx_generation" || input.queryIntent === "advanced_ppt";
+  const hasPptxGenerationSignal = hasAny(text, pptxGenerationPhrases);
+  const hasPptxEvidenceFallback = isPptxGenerationIntent && hasPptxGenerationSignal && hasVisualArtifactSignal;
 
   const reasonCodes: ArtifactGuardReasonCode[] = [];
   const positiveFingerprints: string[] = [];
@@ -227,6 +255,7 @@ function scanArtifactHintsLinearly(input: { readme: string; artifactUrls: string
 
   let trustScore = 10;
   if (hasArchitectureSignal) trustScore += 35;
+  if (isPptxGenerationIntent && hasPptxGenerationSignal) trustScore += 35;
   if (hasTestOrExampleSignal) trustScore += 25;
   if (hasVisualArtifactSignal) trustScore += 20;
   if (input.queryIntent) trustScore += 10;
@@ -235,15 +264,15 @@ function scanArtifactHintsLinearly(input: { readme: string; artifactUrls: string
   if (hasLocalPollution) trustScore -= 100;
   if (hasPromptWrapper) trustScore -= 35;
   if (!hasArchitectureSignal) trustScore -= 25;
-  if (!hasTestOrExampleSignal) trustScore -= 20;
-  if (!hasVisualArtifactSignal) trustScore -= 15;
+  if (!hasTestOrExampleSignal) trustScore -= hasPptxEvidenceFallback ? 5 : 20;
+  if (!hasVisualArtifactSignal && !(isPptxGenerationIntent && hasPptxGenerationSignal && hasTestOrExampleSignal)) trustScore -= 15;
 
   const hardFiltered =
     reasonCodes.includes("ZIP_DOWNLOAD_DOMINATED") ||
     reasonCodes.includes("LOCAL_INSTALL_POLLUTION") ||
     hasPromptWrapper ||
-    !hasArchitectureSignal ||
-    !hasTestOrExampleSignal ||
+    (!hasArchitectureSignal && !(isPptxGenerationIntent && hasPptxGenerationSignal && (hasTestOrExampleSignal || hasVisualArtifactSignal))) ||
+    (!hasTestOrExampleSignal && !hasPptxEvidenceFallback) ||
     trustScore < 45;
 
   if (hardFiltered) {

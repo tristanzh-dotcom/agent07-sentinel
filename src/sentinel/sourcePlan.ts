@@ -43,7 +43,7 @@ export type BuildDefaultSourcePlanV2Input = {
   min_stars_default: 100;
   min_stars_fresh_breakout: 20;
   max_candidates_before_blind_scout: number;
-  topics: Array<"layout-engine" | "vector-graphics" | "typesetting">;
+  topics: Array<"layout-engine" | "vector-graphics" | "typesetting" | "pptx-generation">;
 };
 
 export class SourceQueryTooBroadError extends Error {
@@ -56,7 +56,8 @@ export class SourceQueryTooBroadError extends Error {
 const topicIntentMap: Record<BuildDefaultSourcePlanV2Input["topics"][number], SourcePlanV2Intent> = {
   "layout-engine": "layout_engine",
   "vector-graphics": "vector_graphics",
-  typesetting: "typesetting"
+  typesetting: "typesetting",
+  "pptx-generation": "pptx_generation"
 };
 
 function makeEntry(entry: QueryMatrixEntry): QueryMatrixEntry {
@@ -68,10 +69,156 @@ function requiredQualityTail(input: BuildDefaultSourcePlanV2Input, stars: number
   return `stars:>${stars} pushed:>${input.pushed_after} archived:false template:false mirror:false is:public`;
 }
 
+function canonicalPushedAfter(date: string): string {
+  const year = Number.parseInt(date.slice(0, 4), 10);
+  if (!Number.isFinite(year)) return "2025-01-01";
+  return `${year - 1}-01-01`;
+}
+
+function canonicalQualityTail(input: BuildDefaultSourcePlanV2Input): string {
+  return `stars:>${input.min_stars_default} pushed:>${canonicalPushedAfter(input.date)} archived:false template:false mirror:false is:public`;
+}
+
 export function buildDefaultSourcePlanV2(input: BuildDefaultSourcePlanV2Input): SourcePlanV2 {
   const github_query_matrix: QueryMatrixEntry[] = [];
   const defaultTail = requiredQualityTail(input, input.min_stars_default);
   const freshTail = requiredQualityTail(input, input.min_stars_fresh_breakout);
+  const canonicalTail = canonicalQualityTail(input);
+
+  github_query_matrix.push(
+    makeEntry({
+      id: "readme_pptxgenjs",
+      intent: "pptx_generation",
+      q: `pptxgenjs in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_powerpoint_generator",
+      intent: "pptx_generation",
+      q: `"powerpoint generator" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_pptx_automizer",
+      intent: "pptx_generation",
+      q: `"pptx-automizer" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_react_pptx",
+      intent: "pptx_generation",
+      q: `"react-pptx" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_markdown_to_pptx",
+      intent: "pptx_generation",
+      q: `"markdown" "pptx" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_python_pptx_markdown",
+      intent: "pptx_generation",
+      q: `"python-pptx" "markdown" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "canonical_pptxgenjs",
+      intent: "pptx_generation",
+      q: `pptxgenjs in:readme ${canonicalTail}`,
+      sort: "stars",
+      order: "desc",
+      page_limit: 1,
+      per_page: 30,
+      min_quality_floor: 70,
+      enabled: true
+    }),
+    makeEntry({
+      id: "canonical_pptx_automizer",
+      intent: "pptx_generation",
+      q: `"pptx-automizer" in:readme ${canonicalTail}`,
+      sort: "stars",
+      order: "desc",
+      page_limit: 1,
+      per_page: 30,
+      min_quality_floor: 70,
+      enabled: true
+    }),
+    makeEntry({
+      id: "canonical_react_pptx",
+      intent: "pptx_generation",
+      q: `"react-pptx" in:readme ${canonicalTail}`,
+      sort: "stars",
+      order: "desc",
+      page_limit: 1,
+      per_page: 30,
+      min_quality_floor: 70,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_pptx_skill",
+      intent: "pptx_generation",
+      q: `"pptx" "skill" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_powerpoint_template_layout",
+      intent: "pptx_generation",
+      q: `"powerpoint" "template" "layout" in:readme ${freshTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 55,
+      enabled: true
+    }),
+    makeEntry({
+      id: "readme_pptx_layout",
+      intent: "pptx_generation",
+      q: `"pptx" "layout" in:readme ${defaultTail}`,
+      sort: "updated",
+      order: "desc",
+      page_limit: 2,
+      per_page: 50,
+      min_quality_floor: 60,
+      enabled: true
+    })
+  );
 
   for (const topic of input.topics) {
     github_query_matrix.push(
@@ -94,17 +241,6 @@ export function buildDefaultSourcePlanV2(input: BuildDefaultSourcePlanV2Input): 
       id: "readme_constraint_layout_engine",
       intent: "layout_engine",
       q: `("constraint layout" OR "layout engine") in:readme ${defaultTail}`,
-      sort: "updated",
-      order: "desc",
-      page_limit: 2,
-      per_page: 50,
-      min_quality_floor: 60,
-      enabled: true
-    }),
-    makeEntry({
-      id: "readme_pptx_layout",
-      intent: "pptx_generation",
-      q: `("pptx" "layout") in:readme ${defaultTail}`,
       sort: "updated",
       order: "desc",
       page_limit: 2,
@@ -167,9 +303,18 @@ export function validateQueryMatrixEntry(entry: QueryMatrixEntry): void {
     "topic:layout-engine",
     "topic:vector-graphics",
     "topic:typesetting",
+    "topic:pptx-generation",
     "constraint layout",
     "layout engine",
     `"pptx" "layout"`,
+    `"markdown" "pptx"`,
+    `"pptx" "skill"`,
+    `"powerpoint" "template" "layout"`,
+    `"powerpoint generator"`,
+    `"pptx-automizer"`,
+    `"react-pptx"`,
+    "pptxgenjs",
+    `"python-pptx" "markdown"`,
     "relative layout",
     "constraint engine",
     "renderer",
