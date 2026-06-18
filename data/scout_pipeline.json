@@ -1,8 +1,260 @@
 {
   "version": 1,
   "run_id": "demo-sentinel-dashboard",
-  "updated_at": "2026-06-15T12:00:00+08:00",
+  "updated_at": "2026-06-18T11:06:23.456Z",
   "leads": [
+    {
+      "id": "runtime-w1163222589-coder-slide-image-to-editable-pptx",
+      "repo": "w1163222589-coder/slide-image-to-editable-pptx",
+      "author": "w1163222589-coder",
+      "title": "Slide Image To Editable Pptx",
+      "summary": "A Codex skill for converting slide screenshots into editable PowerPoint decks.",
+      "status": "APPROVED",
+      "audit_status": "AUDITING",
+      "locked": true,
+      "token_roi_estimate": 0.97,
+      "roi_label": "Project Fit 97/100",
+      "source_kind": "RUNTIME_SHADOW_CANDIDATE",
+      "capability": {
+        "version": 1,
+        "repo": "w1163222589-coder/slide-image-to-editable-pptx",
+        "title": "Slide Image To Editable Pptx",
+        "evidence_state": "READY",
+        "decision_gate": "真实能力证据可审查",
+        "run_id": "runtime_top5_shadow_preview_fix_20260618T040444Z",
+        "evidence_sources": [
+          "source_candidates.runtime.json",
+          "source_candidates.envelope.json",
+          "scout_pipeline.shadow.json"
+        ],
+        "capability_facts": [
+          "A Codex skill for converting slide screenshots into editable PowerPoint decks.",
+          "<div align=\"center\">",
+          "[![Skill](https://img.shields.io/badge/type-Codex%20Skill-blue.svg)](https://developers.openai.com/codex/skills)",
+          "[![Platform](https://img.shields.io/badge/platform-Codex%20%7C%20Claude%20Code-lightgrey.svg)](#compatibility)",
+          "[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)"
+        ],
+        "decision_evidence": {
+          "capability_type": "PPT generation library",
+          "integration_path": "Package as local Codex skill or merge into PPT-maker generation chain",
+          "deep_review_recommendation": "PRIORITIZE_DEEP_REVIEW",
+          "decision_summary": "Prioritize deep review: this candidate exposes concrete PPTX generation evidence aligned with the local PPT production system.",
+          "risk_summary": "No blocking runtime risk tags detected."
+        },
+        "artifact": {
+          "status": "CAPTURED",
+          "local_thumb_path": "assets/screenshots/8和9合在一起.jpg",
+          "artifact_url_count": 6
+        },
+        "scoring": {
+          "quality_score": 97,
+          "deterministic_score": 90,
+          "project_fit_score": 97,
+          "project_fit": {
+            "repo": "w1163222589-coder/slide-image-to-editable-pptx",
+            "project_fit_score": 97,
+            "evidence_quality_score": 100,
+            "fit_reason_codes": [
+              "POWERPOINT_GENERATION_LIBRARY",
+              "CODEX_SKILL_COMPATIBLE",
+              "EDITABLE_PPTX_OUTPUT"
+            ],
+            "fit_risk_codes": [],
+            "matched_positive_terms": [
+              "slide image to editable pptx",
+              "codex",
+              "claude code",
+              "openai",
+              "editable pptx",
+              "editable powerpoint",
+              "powerpoint decks"
+            ],
+            "matched_negative_terms": []
+          },
+          "matched_keywords": [
+            "pptx",
+            "slide",
+            "slides",
+            "presentation",
+            "layout",
+            "svg"
+          ],
+          "topics": [
+            "codex-skill",
+            "editable-pptx",
+            "powerpoint",
+            "pptx",
+            "slides"
+          ]
+        },
+        "project_fit": {
+          "repo": "w1163222589-coder/slide-image-to-editable-pptx",
+          "project_fit_score": 97,
+          "evidence_quality_score": 100,
+          "fit_reason_codes": [
+            "POWERPOINT_GENERATION_LIBRARY",
+            "CODEX_SKILL_COMPATIBLE",
+            "EDITABLE_PPTX_OUTPUT"
+          ],
+          "fit_risk_codes": [],
+          "matched_positive_terms": [
+            "slide image to editable pptx",
+            "codex",
+            "claude code",
+            "openai",
+            "editable pptx",
+            "editable powerpoint",
+            "powerpoint decks"
+          ],
+          "matched_negative_terms": []
+        }
+      },
+      "audit_report": null,
+      "artifacts": {
+        "local_thumb_path": "",
+        "status": "CAPTURED",
+        "artifact_url_count": 6,
+        "source_url": "assets/screenshots/8和9合在一起.jpg"
+      }
+    },
+    {
+      "id": "runtime-yingkitw-ppt-rs",
+      "repo": "yingkitw/ppt-rs",
+      "author": "yingkitw",
+      "title": "Ppt Rs",
+      "summary": "The Rust library for generating PowerPoint presentations that actually works.**",
+      "status": "APPROVED",
+      "audit_status": "COMPLETED",
+      "locked": true,
+      "token_roi_estimate": 1,
+      "roi_label": "Project Fit 100/100",
+      "source_kind": "RUNTIME_SHADOW_CANDIDATE",
+      "capability": {
+        "version": 1,
+        "repo": "yingkitw/ppt-rs",
+        "title": "Ppt Rs",
+        "evidence_state": "READY",
+        "decision_gate": "真实能力证据可审查",
+        "run_id": "runtime_top5_shadow_preview_fix_20260618T040444Z",
+        "evidence_sources": [
+          "source_candidates.runtime.json",
+          "source_candidates.envelope.json",
+          "scout_pipeline.shadow.json"
+        ],
+        "capability_facts": [
+          "The Rust library for generating PowerPoint presentations that actually works.**",
+          "While other Rust crates for PPTX generation are incomplete, broken, or abandoned, `ppt-rs` generates **valid, production-ready PowerPoint files** tha…",
+          "Related:** For Excel, see [`xls-rs`](https://crates.io/crates/xls-rs).",
+          "MCP:** Build with `--features mcp` and run **`ppt_mcp`** — a [Model Context Protocol](https://modelcontextprotocol.io) server ([rmcp](https://crates.…"
+        ],
+        "decision_evidence": {
+          "capability_type": "Editable PPTX generation skill",
+          "integration_path": "Merge into PPT-maker generation chain",
+          "deep_review_recommendation": "PRIORITIZE_DEEP_REVIEW",
+          "decision_summary": "Prioritize deep review: this candidate exposes concrete PPTX generation evidence aligned with the local PPT production system.",
+          "risk_summary": "No blocking runtime risk tags detected."
+        },
+        "artifact": {
+          "status": "CAPTURED",
+          "local_thumb_path": "url",
+          "artifact_url_count": 1
+        },
+        "scoring": {
+          "quality_score": 100,
+          "deterministic_score": 73,
+          "project_fit_score": 100,
+          "project_fit": {
+            "repo": "yingkitw/ppt-rs",
+            "project_fit_score": 100,
+            "evidence_quality_score": 100,
+            "fit_reason_codes": [
+              "MAINLINE_MARKDOWN_TO_PPTX",
+              "HTML_TO_PPTX_GENERATION",
+              "POWERPOINT_GENERATION_LIBRARY",
+              "LOCAL_AUTOMATION_SURFACE"
+            ],
+            "fit_risk_codes": [],
+            "matched_positive_terms": [
+              "markdown to pptx",
+              "markdown to powerpoint",
+              "html to pptx",
+              "pptx generation",
+              "cli"
+            ],
+            "matched_negative_terms": []
+          },
+          "matched_keywords": [
+            "pptx",
+            "slide",
+            "slides",
+            "presentation",
+            "layout",
+            "pdf",
+            "diagram"
+          ],
+          "topics": []
+        },
+        "project_fit": {
+          "repo": "yingkitw/ppt-rs",
+          "project_fit_score": 100,
+          "evidence_quality_score": 100,
+          "fit_reason_codes": [
+            "MAINLINE_MARKDOWN_TO_PPTX",
+            "HTML_TO_PPTX_GENERATION",
+            "POWERPOINT_GENERATION_LIBRARY",
+            "LOCAL_AUTOMATION_SURFACE"
+          ],
+          "fit_risk_codes": [],
+          "matched_positive_terms": [
+            "markdown to pptx",
+            "markdown to powerpoint",
+            "html to pptx",
+            "pptx generation",
+            "cli"
+          ],
+          "matched_negative_terms": []
+        }
+      },
+      "audit_report": {
+        "version": 1,
+        "repo": "yingkitw/ppt-rs",
+        "verdict": "RECOMMENDED_SKILL",
+        "recommendation": "Proceed to integration trial",
+        "confidence": 0.99,
+        "evidence": [
+          "The Rust library for generating PowerPoint presentations that actually works.**",
+          "While other Rust crates for PPTX generation are incomplete, broken, or abandoned, `ppt-rs` generates **valid, production-ready PowerPoint files** tha…",
+          "Related:** For Excel, see [`xls-rs`](https://crates.io/crates/xls-rs).",
+          "MCP:** Build with `--features mcp` and run **`ppt_mcp`** — a [Model Context Protocol](https://modelcontextprotocol.io) server ([rmcp](https://crates.…",
+          "Prioritize deep review: this candidate exposes concrete PPTX generation evidence aligned with the local PPT production system.",
+          "Artifact status: CAPTURED"
+        ],
+        "integration": {
+          "next_steps": [
+            "Install or vendor the skill in a local sandbox.",
+            "Run a local PPT-maker trial against a representative markdown deck.",
+            "Compare generated PPTX editability, template reuse, and failure modes before production integration."
+          ],
+          "estimated_glue_code_lines": 120,
+          "friction_score": 0.32
+        },
+        "deliverables": [
+          "Integration trial plan",
+          "Skill fit summary",
+          "Local sandbox verification notes"
+        ],
+        "risks": [
+          "Template reuse and output editability still require a local trial."
+        ],
+        "markdown_path": "/Users/tristanzh/agent/Git-Scout/storage/audit_reports/yingkitw_ppt-rs/audit_report.md"
+      },
+      "artifacts": {
+        "local_thumb_path": "",
+        "status": "CAPTURED",
+        "artifact_url_count": 1,
+        "source_url": "url"
+      }
+    },
     {
       "id": "lead-vector-ppt-engine",
       "repo": "github/designer-ai/vector-ppt-engine",
@@ -14,8 +266,14 @@
       "locked": false,
       "token_roi_estimate": 0.38,
       "roi_label": "预计节约 38% 审计 Token",
+      "source_kind": "PRODUCTION_PIPELINE",
+      "capability": null,
+      "audit_report": null,
       "artifacts": {
-        "local_thumb_path": "/agent07-artifacts/demo/artifact-1.svg"
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-1.svg",
+        "status": "CAPTURED",
+        "artifact_url_count": 0,
+        "source_url": ""
       }
     },
     {
@@ -29,8 +287,14 @@
       "locked": false,
       "token_roi_estimate": 0.31,
       "roi_label": "预计节约 31% 试错成本",
+      "source_kind": "PRODUCTION_PIPELINE",
+      "capability": null,
+      "audit_report": null,
       "artifacts": {
-        "local_thumb_path": "/agent07-artifacts/demo/artifact-2.svg"
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-2.svg",
+        "status": "CAPTURED",
+        "artifact_url_count": 0,
+        "source_url": ""
       }
     },
     {
@@ -44,43 +308,23 @@
       "locked": false,
       "token_roi_estimate": 0.27,
       "roi_label": "预计减少 27% 重绘回合",
+      "source_kind": "PRODUCTION_PIPELINE",
+      "capability": null,
+      "audit_report": null,
       "artifacts": {
-        "local_thumb_path": "/agent07-artifacts/demo/artifact-3.svg"
-      }
-    },
-    {
-      "id": "lead-editorial-pdf",
-      "repo": "github/docgen-ai/editorial-pdf",
-      "author": "docgen-ai",
-      "title": "Editorial PDF Engine",
-      "summary": "面向 PDF 和报告样张的高级网格系统，适合验证中英混排边界。",
-      "status": "PENDING",
-      "audit_status": "IDLE",
-      "locked": false,
-      "token_roi_estimate": 0.25,
-      "roi_label": "预计降低 25% 版式返工",
-      "artifacts": {
-        "local_thumb_path": "/agent07-artifacts/demo/artifact-4.svg"
-      }
-    },
-    {
-      "id": "lead-grid-composer",
-      "repo": "github/slide-intel/grid-composer",
-      "author": "slide-intel",
-      "title": "Grid Composer",
-      "summary": "轻量 slide grid 组合器，候选价值在可热插拔的局部布局生成。",
-      "status": "PENDING",
-      "audit_status": "IDLE",
-      "locked": false,
-      "token_roi_estimate": 0.22,
-      "roi_label": "预计节约 22% 沙盒验证成本",
-      "artifacts": {
-        "local_thumb_path": "/agent07-artifacts/demo/artifact-5.svg"
+        "local_thumb_path": "/agent07-artifacts/demo/artifact-3.svg",
+        "status": "CAPTURED",
+        "artifact_url_count": 0,
+        "source_url": ""
       }
     }
   ],
   "blacklist": {
-    "repos": [],
-    "authors": []
+    "repos": [
+      "wiseair-srl/json-to-office"
+    ],
+    "authors": [
+      "wiseair-srl"
+    ]
   }
 }
